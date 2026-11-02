@@ -1,6 +1,7 @@
 name: Web package
 on:
   push:
+    branches: [main, repository-baseline]
   pull_request:
 permissions:
   contents: read
@@ -16,8 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: awaku7/agentcli
-          # Companion API PR #330. Replace with its released version before publishing.
-          ref: 824412c393885ed72ecba662e766ddaf9926a030
+          # Core 0.7.42 extraction candidate; use its release tag after publication.
+          ref: bf1cae8198a62d27dbf3971228afe28e72203989
           path: .uag-core
       - uses: actions/setup-python@v5
         with:

@@ -10,10 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 classifiers = ["Programming Language :: Python :: 3", "Operating System :: OS Independent"]
-# Raise the lower bound to the first UAG release with the host callback API
-# before publishing. Development uses the sibling editable UAG checkout.
+# UAG 0.7.42 supplies the host API without a competing uagw entry point.
 dependencies = [
-  "uag[core,web]>=0.7.41",
+  "uag[core,web]>=0.7.42",
   "fastapi>=0.115",
   "uvicorn>=0.34",
   "httpx>=0.28.1",

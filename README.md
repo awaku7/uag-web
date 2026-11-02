@@ -4,10 +4,8 @@ Svelte + FastAPI Web host for [Universal AI Gateway](https://github.com/awaku7/a
 Agent execution, providers, tools, memory, authorization, Sandbox and telemetry
 are supplied by the `uag` Python package in the same server process.
 
-This checkout is a migration candidate, not a published release. The required
-host callback API is currently in the companion UAG branch. The initial UAG
-version lower bound must be updated after that API is released. UAG's existing
-`uagw` entry point must be removed before independent public distribution.
+This checkout is a migration candidate, not a published release. UAG 0.7.42 is required and must be released before this package is published.
+That release supplies the host API and removes the old competing `uagw` command.
 
 After release:
 
