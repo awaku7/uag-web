@@ -2,10 +2,10 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [svelte()],
   root: '.',
-  base: '/static/',
+  base: command === 'serve' ? '/' : '/static/',
   build: {
     outDir: path.resolve(__dirname, '..', 'src', 'uag_web', 'static'),
     emptyOutDir: true,
@@ -32,4 +32,4 @@ export default defineConfig({
       '/local-file': 'http://localhost:8000',
     },
   },
-});
+}));
