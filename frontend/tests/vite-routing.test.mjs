@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { stripVTControlCharacters } from 'node:util';
 
 test('Vite development modules stay on the frontend server', { timeout: 30000 }, async () => {
   const child = spawn(process.execPath, [
     'node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '0',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '1' } });
   const exited = once(child, 'exit');
   let output = '';
   child.stderr.on('data', (chunk) => { output += chunk; });
@@ -18,7 +19,7 @@ test('Vite development modules stay on the frontend server', { timeout: 30000 },
       child.on('exit', () => reject(new Error(output || 'Vite exited before startup')));
       child.stdout.on('data', (chunk) => {
         output += chunk;
-        const match = output.match(/http:\/\/127\.0\.0\.1:\d+/);
+        const match = stripVTControlCharacters(output).match(/http:\/\/127\.0\.0\.1:\d+/);
         if (match) resolve(match[0]);
       });
     });
