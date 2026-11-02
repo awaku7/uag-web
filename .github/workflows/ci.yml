@@ -40,6 +40,8 @@ jobs:
       - run: python -m pytest -q tests --durations=20
       - run: python -m build
       - run: python scripts/check_distribution.py
+      - run: python -m build .uag-core --outdir dist/core
+      - run: python scripts/check_installation.py
       - uses: actions/upload-artifact@v4
         with:
           name: distributions-${{ matrix.os }}
