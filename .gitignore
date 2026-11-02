@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+frontend/node_modules/
+tests/_tmp/
+.env
+.env.*
+.uagent.key
+.uag/
+.uagent/
+mcp_servers.json
+.uag-core/
