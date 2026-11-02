@@ -4,7 +4,7 @@
   import { t } from '../../lib/i18n.svelte.js';
 
   let { msg, roomId = '' } = $props();
-  
+
   let role = $derived(String(msg.role || '').toLowerCase());
   let content = $derived(String(msg.content || ''));
   let name = $derived(String(msg.name || ''));
