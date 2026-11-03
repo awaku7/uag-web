@@ -24,7 +24,7 @@
   let labels = $derived(words[getLang()] || words.en);
   let selected = $derived(presets.find((item) => item.id === voice));
 
-  function stop() { speaker?.stop(); dictation?.cancel(); }
+  function stop() { speaker?.stop(); }
   function stopVoice() { relay?.({ type: 'avatar_stop' }); }
   function close() {
     attempt++;
@@ -68,7 +68,7 @@
       (value) => { listening = value; },
       () => { error = labels.blocked; },
     );
-    relay = createAvatarRelay((text) => speaker?.speak(text), stop);
+    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel());
     const unsubscribe = subscribeAvatar(relay);
     return () => { mounted = false; unsubscribe(); close(); };
   });

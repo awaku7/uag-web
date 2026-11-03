@@ -82,3 +82,12 @@ test('cancelled dictation cannot submit its saved result callback in a new sessi
   dictation.cancel();
   assert.equal(states.at(-1),false);
 });
+
+test('an agent interruption acknowledgement preserves new dictation, but context resets cancel it', () => {
+  let cancelled=0;
+  const relay=createAvatarRelay(()=>{},()=>{},()=>cancelled++);
+  relay({type:'assistant_stream_interrupted',id:'previous'});
+  assert.equal(cancelled,0);
+  for (const type of ['avatar_stop','init','human_ask']) relay({type});
+  assert.equal(cancelled,3);
+});

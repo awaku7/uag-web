@@ -49,12 +49,14 @@ export function createSpeaker(runtime, onError = () => {}) {
 }
 
 // Only live, completed responses are spoken; history/reconnect never replays.
-export function createAvatarRelay(speak, stop) {
+export function createAvatarRelay(speak, stop, cancelCapture = () => {}) {
   let id = null;
   let text = '';
   return (event) => {
     if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'human_ask'].includes(event.type)) {
       id = null; text = ''; stop();
+      // An acknowledgement of our barge-in must not cancel the new dictation.
+      if (event.type !== 'assistant_stream_interrupted') cancelCapture();
     } else if (event.type === 'assistant_stream_start') {
       id = event.snapshot ? null : event.id; text = '';
     } else if (id !== null && event.id === id) {
