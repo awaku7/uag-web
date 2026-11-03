@@ -7,6 +7,7 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
   let turnActive = false;
   let suppressStreamStart = false;
   let toolAnnounced = false;
+  let resumeStoppedTurn = false;
   const localUserMessageIds = new Set();
 
   function speakAndResume(value) {
@@ -26,6 +27,10 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
       if (event.type === 'init' || (event.type === 'avatar_stop' && event.reason === 'reset')) {
         localUserMessageIds.clear();
       }
+      // Stop voice can preserve an already paused microphone. Only terminal
+      // cleanup for that same turn may resume it; its answer stays silent.
+      resumeStoppedTurn = event.type === 'avatar_stop'
+        && event.preserveCapture === true && (turnActive || resumeStoppedTurn);
       id = null;
       text = '';
       streamAnswer = '';
@@ -52,6 +57,7 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
       if (!turnActive) {
         turnActive = true;
         suppressStreamStart = false;
+        resumeStoppedTurn = false;
         toolAnnounced = false;
         stop();
         pauseCapture();
@@ -61,6 +67,7 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
       // Never re-arm a manually stopped or cancelled turn from a late stream.
       if (!turnActive && !suppressStreamStart) {
         turnActive = true;
+        resumeStoppedTurn = false;
         toolAnnounced = false;
         stop();
       }
@@ -68,6 +75,11 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
       id = event.id;
       text = '';
       pauseCapture();
+    } else if (event.type === 'assistant_turn_complete' && resumeStoppedTurn) {
+      // A manually stopped answer is never spoken, but listening must resume.
+      resumeStoppedTurn = false;
+      resumeCapture();
+      return;
     } else if (!turnActive) {
       // Reconnect snapshots and messages from already-cancelled turns stay silent.
       return;
