@@ -157,7 +157,8 @@ test('interrupt, human ask and connection reset discard pending speech', () => {
     relay({ type, id: 1 });
     relay({ type: 'assistant_stream_end', id: 1 });
     relay({ type: 'assistant_turn_complete' });
-    assert.deepEqual(spoken, []); assert.equal(stopped, 1);
+    // A fresh remote stream and the subsequent interruption each stop playback.
+    assert.deepEqual(spoken, []); assert.equal(stopped, 2);
   }
 });
 
