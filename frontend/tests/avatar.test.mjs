@@ -8,6 +8,7 @@ test('avatar relay speaks only a completed live response, using replacement text
   const relay = createAvatarRelay((text) => spoken.push(text), () => stopped++);
   relay({ type: 'init', messages: [{ role: 'assistant', content: 'history' }] });
   relay({ type: 'assistant_stream_end', id: 'old' });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
   relay({ type: 'assistant_stream_start', id: 'new' });
   relay({ type: 'assistant_stream_delta', id: 'old', delta: 'wrong room' });
   relay({ type: 'assistant_stream_delta', id: 'new', delta: 'draft' });
@@ -16,7 +17,7 @@ test('avatar relay speaks only a completed live response, using replacement text
   relay({ type: 'assistant_stream_end', id: 'new' });
   relay({ type: 'message', message: { role: 'assistant', content: 'final' } });
   relay({ type: 'assistant_turn_complete' });
-  assert.deepEqual(spoken, ['final']); assert.equal(stopped, 1);
+  assert.deepEqual(spoken, ['final']); assert.equal(stopped, 2);
 });
 
 test('avatar relay speaks a completed assistant message when no stream was sent', () => {
@@ -222,6 +223,7 @@ test('a reconnect snapshot is never spoken, even when an active retained stream 
     if (!ended) relay({type:'assistant_stream_delta',id:'retained',delta:' continued'});
     relay({type:'assistant_stream_end',id:'retained',snapshot:ended});
     assert.deepEqual(spoken,[]);
+    relay({type:'avatar_stop',reason:'new_input'});
     relay({type:'assistant_stream_start',id:'live'});
     relay({type:'assistant_stream_delta',id:'live',delta:'new response'});
     relay({type:'assistant_stream_end',id:'live'});
