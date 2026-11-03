@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getLang } from '../i18n.svelte.js';
   import { subscribeAvatar } from '../stores.svelte.js';
-  import { loadAvatar, createSpeaker, createAvatarRelay } from '../avatar.js';
+  import { loadAvatar, createSpeaker, createAvatarRelay, createDictation } from '../avatar.js';
   let { onSend, onInterrupt } = $props();
   let presets = $state([]);
   let voice = $state('marine');
@@ -13,7 +13,8 @@
   let speaker;
   let runtime;
   let attempt = 0;
-  let recognition;
+  let dictation;
+  let relay;
   let listening = $state(false);
   let canListen = $state(false);
   const words = {
@@ -23,11 +24,11 @@
   let labels = $derived(words[getLang()] || words.en);
   let selected = $derived(presets.find((item) => item.id === voice));
 
-  function stop() { speaker?.stop(); }
+  function stop() { speaker?.stop(); dictation?.cancel(); }
+  function stopVoice() { relay?.({ type: 'avatar_stop' }); }
   function close() {
     attempt++;
-    if (recognition) { recognition.onresult = null; recognition.abort(); }
-    recognition = null; listening = false;
+    stopVoice(); dictation?.cancel();
     speaker?.destroy(); speaker = null; runtime = null;
     enabled = false; loading = false;
   }
@@ -46,20 +47,13 @@
     finally { if (current === attempt) loading = false; }
   }
   function listen() {
-    if (listening) { recognition?.stop(); return; }
-    onInterrupt(); stop(); error = '';
+    if (listening) { dictation?.finish(); return; }
+    onInterrupt(); stopVoice(); error = '';
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
+    const recognition = new SpeechRecognition();
     recognition.lang = getLang() === 'ja' ? 'ja-JP' : getLang();
     recognition.continuous = false; recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const text = event.results[0]?.[0]?.transcript?.trim();
-      if (text && !onSend(text, [])) error = labels.blocked;
-    };
-    recognition.onerror = () => { error = labels.blocked; listening = false; };
-    recognition.onend = () => { listening = false; };
-    try { recognition.start(); listening = true; }
-    catch (_) { error = labels.blocked; }
+    dictation?.start(recognition);
   }
   onMount(() => {
     let mounted = true;
@@ -69,7 +63,12 @@
       const config = await response.json();
       if (mounted) presets = config.presets;
     }).catch(() => {});
-    const relay = createAvatarRelay((text) => speaker?.speak(text), stop);
+    dictation = createDictation(
+      (text) => { if (!onSend(text, [])) error = labels.blocked; },
+      (value) => { listening = value; },
+      () => { error = labels.blocked; },
+    );
+    relay = createAvatarRelay((text) => speaker?.speak(text), stop);
     const unsubscribe = subscribeAvatar(relay);
     return () => { mounted = false; unsubscribe(); close(); };
   });
@@ -83,7 +82,7 @@
     </select>
     {#if enabled}
       <button onclick={close}>{labels.disable}</button>
-      <button onclick={stop} disabled={loading}>{labels.stop}</button>
+      <button onclick={stopVoice} disabled={loading}>{labels.stop}</button>
       <button onclick={() => runtime?.avatar.resume()} disabled={loading}>{labels.retry}</button>
     {:else}
       <button onclick={start} disabled={!selected?.ready}>{labels.enable}</button>

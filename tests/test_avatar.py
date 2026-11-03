@@ -66,3 +66,32 @@ def test_asset_symlink_cannot_escape(monkeypatch, tmp_path):
         pytest.skip("symlinks require additional Windows permissions")
     with TestClient(app) as client:
         assert client.get("/api/avatar/files/sdk/dist/index.js").status_code == 404
+
+
+def test_reconnect_marks_stream_snapshots_without_changing_live_events(monkeypatch):
+    import asyncio
+    from uag_web import rooms
+
+    room = rooms.WebRoom("avatar-reconnect")
+    room.welcome_shown = True
+    room._partial_streams = {"finished": "already spoken", "active": "partial"}
+    room._ended_streams = {"finished"}
+    monkeypatch.setattr(rooms, "_load_input_history", lambda: [])
+    events = []
+
+    class Socket:
+        async def accept(self):
+            pass
+
+        async def send_json(self, event):
+            events.append(event)
+
+    async def exercise():
+        await room.connect(Socket())
+        await room.broadcast({"type": "assistant_stream_start", "id": "new"})
+
+    asyncio.run(exercise())
+    retained = [event for event in events if event.get("id") in {"finished", "active"}]
+    assert len(retained) == 5
+    assert all(event["snapshot"] is True for event in retained)
+    assert events[-1] == {"type": "assistant_stream_start", "id": "new"}

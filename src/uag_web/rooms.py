@@ -322,18 +322,27 @@ class WebRoom:
             for stream_id, content, ended in stream_snapshot:
                 await self._validate_connection_context(websocket, connection_context)
                 await websocket.send_json(
-                    {"type": "assistant_stream_start", "id": stream_id}
+                    {
+                        "type": "assistant_stream_start",
+                        "id": stream_id,
+                        "snapshot": True,
+                    }
                 )
                 await websocket.send_json(
                     {
                         "type": "assistant_stream_replace",
                         "id": stream_id,
                         "content": content,
+                        "snapshot": True,
                     }
                 )
                 if ended:
                     await websocket.send_json(
-                        {"type": "assistant_stream_end", "id": stream_id}
+                        {
+                            "type": "assistant_stream_end",
+                            "id": stream_id,
+                            "snapshot": True,
+                        }
                     )
             # Restore pending human_ask modal after reconnect.
             if getattr(self, "human_ask_pending", False):

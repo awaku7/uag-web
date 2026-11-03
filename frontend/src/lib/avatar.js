@@ -56,11 +56,40 @@ export function createAvatarRelay(speak, stop) {
     if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'human_ask'].includes(event.type)) {
       id = null; text = ''; stop();
     } else if (event.type === 'assistant_stream_start') {
-      id = event.id; text = '';
+      id = event.snapshot ? null : event.id; text = '';
     } else if (id !== null && event.id === id) {
       if (event.type === 'assistant_stream_delta') text += event.delta || '';
       if (event.type === 'assistant_stream_replace') text = event.content || '';
       if (event.type === 'assistant_stream_end') { speak(text); id = null; text = ''; }
     }
+  };
+}
+
+// Recognition results are bound to one session attempt, including already queued callbacks.
+export function createDictation(onText, onState, onError) {
+  let active = null;
+  function cancel() {
+    const previous = active; active = null;
+    if (previous) {
+      previous.onresult = null; previous.onend = null; previous.onerror = null;
+      previous.abort();
+    }
+    onState(false);
+  }
+  return {
+    cancel,
+    finish() { active?.stop(); },
+    start(recognition) {
+      cancel(); active = recognition;
+      recognition.onresult = (event) => {
+        if (active !== recognition) return;
+        const text = event.results[0]?.[0]?.transcript?.trim();
+        if (text) onText(text);
+      };
+      recognition.onerror = () => { if (active === recognition) { cancel(); onError(); } };
+      recognition.onend = () => { if (active === recognition) { active = null; onState(false); } };
+      try { recognition.start(); onState(true); }
+      catch (_) { cancel(); onError(); }
+    },
   };
 }

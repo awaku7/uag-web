@@ -47,3 +47,38 @@ test('synthesis finishing after stop cannot produce audible chunks', async () =>
 test('code blocks and image URLs are not read aloud', () => {
   assert.equal(spokenText('Hello ```js\nsecret()\n``` [link](https://example.com) ![image](a.png)'), 'Hello  link');
 });
+
+test('a reconnect snapshot is never spoken, even when an active retained stream ends later', () => {
+  for (const ended of [true, false]) {
+    const spoken=[];
+    const relay=createAvatarRelay(text=>spoken.push(text),()=>{});
+    relay({type:'init'});
+    relay({type:'assistant_stream_start',id:'retained',snapshot:true});
+    relay({type:'assistant_stream_replace',id:'retained',content:'previous response',snapshot:true});
+    if (!ended) relay({type:'assistant_stream_delta',id:'retained',delta:' continued'});
+    relay({type:'assistant_stream_end',id:'retained',snapshot:ended});
+    assert.deepEqual(spoken,[]);
+    relay({type:'assistant_stream_start',id:'live'});
+    relay({type:'assistant_stream_delta',id:'live',delta:'new response'});
+    relay({type:'assistant_stream_end',id:'live'});
+    assert.deepEqual(spoken,['new response']);
+  }
+});
+
+test('cancelled dictation cannot submit its saved result callback in a new session', async () => {
+  const {createDictation}=await import('../src/lib/avatar.js');
+  const sent=[]; const states=[];
+  const dictation=createDictation(text=>sent.push(text),value=>states.push(value),()=>{});
+  const first={start(){},stop(){},abort(){this.aborted=true;}};
+  dictation.start(first);
+  const lateResult=first.onresult;
+  dictation.cancel();
+  const second={start(){},stop(){},abort(){}};
+  dictation.start(second);
+  lateResult({results:[[{transcript:'old session'}]]});
+  second.onresult({results:[[{transcript:'new session'}]]});
+  assert.equal(first.aborted,true);
+  assert.deepEqual(sent,['new session']);
+  dictation.cancel();
+  assert.equal(states.at(-1),false);
+});

@@ -77,3 +77,11 @@ node scripts/check_avatar_browser.mjs
 WebSocketの返答だけをテスト側で送信し、実SDK・3種類の実声・アバターを使います。
 音声バッファの再生開始・終了と切り替えを検証します。実LLM・マイクの検証ではありません。
 このテストはWebGPUを使える検証端末で実行し、CIの必須テストには含めません。
+
+### 再接続時のWebSocket通知
+
+既存の`assistant_stream_start` / `assistant_stream_replace` / `assistant_stream_end`
+を維持し、接続時に保持済みストリームを復元する通知だけ`"snapshot": true`を追加します。
+既存チャット表示は従来どおり復元しますが、音声側はこのストリームを読み上げ対象にしません。
+復元時点で処理中だったストリームも除外し、次の新しい返答から読み上げます。
+通常のライブ通知と入力メッセージの形式は変えません。
