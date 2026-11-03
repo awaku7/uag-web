@@ -18,8 +18,8 @@
   let listening = $state(false);
   let canListen = $state(false);
   const words = {
-    ja: { title: '声・アバター', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: '標準アバターは未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', mic: '無音が約1.1秒続くと発話を送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
-    en: { title: 'Voice & avatar', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Standard avatars have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', mic: 'Speech is sent after about 1.1 seconds of silence. Audio may be sent to the browser provider.', retry: 'Resume playback' },
+    ja: { title: '声・アバター', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: '標準アバターは未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '無音が約1.1秒続くと発話を送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
+    en: { title: 'Voice & avatar', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Standard avatars have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 1.1 seconds of silence. Audio may be sent to the browser provider.', retry: 'Resume playback' },
   };
   let labels = $derived(words[getLang()] || words.en);
   let selected = $derived(presets.find((item) => item.id === voice));
@@ -75,7 +75,7 @@
       () => { error = labels.micError; },
       1100,
     );
-    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume());
+    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume(), () => labels.toolWait);
     const unsubscribe = subscribeAvatar(relay);
     return () => { mounted = false; unsubscribe(); close(); };
   });

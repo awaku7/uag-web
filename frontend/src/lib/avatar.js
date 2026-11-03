@@ -56,11 +56,13 @@ export function createSpeaker(runtime, onError = () => {}) {
 }
 
 // Speak only fresh completed responses; never replay history or stream snapshots.
-export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCapture = () => {}, resumeCapture = () => {}) {
+export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCapture = () => {}, resumeCapture = () => {}, toolPhrase = 'ツールを利用します。少々お待ちください。') {
   let id = null;
   let text = '';
   let streamSeen = false;
   let awaitingFinalMessage = false;
+  let turnActive = false;
+  let toolAnnounced = false;
 
   function speakAndResume(value) {
     let playback;
@@ -75,6 +77,8 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       text = '';
       streamSeen = event.type === 'init' || event.type === 'assistant_stream_interrupted';
       awaitingFinalMessage = event.type === 'avatar_stop' && event.reason === 'new_input';
+      turnActive = awaitingFinalMessage;
+      toolAnnounced = false;
       stop();
       const keepCapture = event.type === 'assistant_stream_interrupted'
         || event.preserveCapture === true
@@ -88,6 +92,15 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       id = event.snapshot ? null : event.id;
       text = '';
       if (!event.snapshot) pauseCapture();
+    } else if (event.type === 'tool_activity') {
+      if (turnActive && event.name && !toolAnnounced) {
+        toolAnnounced = true;
+        pauseCapture();
+        const phrase = typeof toolPhrase === 'function' ? toolPhrase() : toolPhrase;
+        try { speak(phrase); } catch (_) {}
+      }
+    } else if (event.type === 'status' && event.status?.busy === false) {
+      turnActive = false;
     } else if (event.type === 'message') {
       const message = event.message;
       if (event.snapshot || message?.role !== 'assistant') return;

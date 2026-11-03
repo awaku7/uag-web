@@ -48,6 +48,19 @@ test('manual stop does not arm fallback speech for an unstreamed response', () =
   assert.deepEqual(spoken, []);
 });
 
+test('tool activity announces once per user turn and ignores activity outside a turn', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {}, () => {}, () => {}, () => {}, 'tool cue');
+  relay({ type: 'tool_activity', name: 'search' });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'tool_activity', name: 'search' });
+  relay({ type: 'tool_activity', name: 'browser' });
+  relay({ type: 'status', status: { busy: false } });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'tool_activity', name: 'command' });
+  assert.deepEqual(spoken, ['tool cue', 'tool cue']);
+});
+
 test('continuous dictation submits an utterance after silence and waits for resume', async () => {
   const recognitions = [];
   const sent = [];
