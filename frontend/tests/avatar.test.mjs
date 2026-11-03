@@ -14,6 +14,7 @@ test('avatar relay speaks only a completed live response, using replacement text
   relay({ type: 'assistant_stream_replace', id: 'new', content: 'final' });
   relay({ type: 'assistant_stream_end', id: 'new' });
   relay({ type: 'assistant_stream_end', id: 'new' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'final' } });
   assert.deepEqual(spoken, ['final']); assert.equal(stopped, 1);
 });
 
@@ -53,6 +54,7 @@ test('tool activity announces once per user turn and ignores activity outside a 
   const relay = createAvatarRelay((text) => spoken.push(text), () => {}, () => {}, () => {}, () => {}, 'tool cue');
   relay({ type: 'tool_activity', name: 'search' });
   relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'status', status: { busy: false } });
   relay({ type: 'tool_activity', name: 'search' });
   relay({ type: 'tool_activity', name: 'browser' });
   relay({ type: 'status', status: { busy: false } });
@@ -110,10 +112,34 @@ test('continuous listening pauses during assistant speech and resumes after play
   relay({ type: 'assistant_stream_start', id: 'live' });
   relay({ type: 'assistant_stream_delta', id: 'live', delta: 'answer' });
   relay({ type: 'assistant_stream_end', id: 'live' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'answer' } });
   assert.deepEqual(events, ['pause', 'pause', 'speak']);
   finishPlayback();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(events.at(-1), 'resume');
+});
+
+test('stream speech falls back to accumulated text when no stored message follows', async () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'live' });
+  relay({ type: 'assistant_stream_delta', id: 'live', delta: 'complete response' });
+  relay({ type: 'assistant_stream_end', id: 'live' });
+  assert.deepEqual(spoken, []);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.deepEqual(spoken, ['complete response']);
+});
+
+test('empty reasoning stream does not suppress the final assistant message', async () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'reasoning' });
+  relay({ type: 'assistant_stream_end', id: 'reasoning' });
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  relay({ type: 'message', message: { role: 'assistant', content: 'final answer' } });
+  assert.deepEqual(spoken, ['final answer']);
 });
 
 test('interrupt, human ask and connection reset discard pending speech', () => {
@@ -193,6 +219,7 @@ test('a reconnect snapshot is never spoken, even when an active retained stream 
     relay({type:'assistant_stream_start',id:'live'});
     relay({type:'assistant_stream_delta',id:'live',delta:'new response'});
     relay({type:'assistant_stream_end',id:'live'});
+    relay({type:'message',message:{role:'assistant',content:'new response'}});
     assert.deepEqual(spoken,['new response']);
   }
 });
