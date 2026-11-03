@@ -97,12 +97,18 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       if (!turnActive) {
         turnActive = true;
         suppressStreamStart = false;
+        toolAnnounced = false;
+        stop();
         pauseCapture();
       }
     } else if (event.type === 'assistant_stream_start' && !event.snapshot) {
       // Some providers start streaming before a stored user message arrives.
       // Never re-arm a manually stopped or cancelled turn from a late stream.
-      if (!turnActive && !suppressStreamStart) turnActive = true;
+      if (!turnActive && !suppressStreamStart) {
+        turnActive = true;
+        toolAnnounced = false;
+        stop();
+      }
       if (!turnActive) return;
       id = event.id;
       text = '';
