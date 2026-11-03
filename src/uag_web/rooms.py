@@ -545,13 +545,15 @@ class WebRoom:
                 for stream_id, _ in streams
                 if stream_id not in ended_streams
             ]
+            cancel_event = {"type": "assistant_turn_cancelled"}
             for queue in self._pending_replays.values():
                 queue.extend(event.copy() for event in ended_events)
                 # The reconnect snapshot already contains the stream text.
                 # Replay its termination and the error, not a duplicate message.
                 queue.append(error_event.copy())
+                queue.append(cancel_event.copy())
             recipients = tuple(self.active_connections)
-        events = [*ended_events, *recovered_events, error_event]
+        events = [*ended_events, *recovered_events, error_event, cancel_event]
         if self.loop:
             for event in events:
                 asyncio.run_coroutine_threadsafe(
