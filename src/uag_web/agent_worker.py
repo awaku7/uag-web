@@ -1012,10 +1012,17 @@ def run_agent_worker(
             _stream_end()
         except Exception:
             pass
-        # The stream can end before the final stored assistant message arrives.
-        # Signal completion only after all messages have been enqueued.
+        # A revoked memory projection must discard any response already
+        # buffered by the browser rather than being treated as completed.
         try:
-            _web_stream_send({"type": "assistant_turn_complete"})
+            if (
+                getattr(core, "_memory_projection_invalidated", False)
+                or not _memory_projection_is_current()
+            ):
+                _web_stream_send({"type": "assistant_turn_cancelled"})
+            else:
+                # The final stored assistant message can follow stream_end.
+                _web_stream_send({"type": "assistant_turn_complete"})
         except Exception:
             pass
 
