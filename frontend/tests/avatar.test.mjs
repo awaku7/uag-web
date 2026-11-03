@@ -308,3 +308,49 @@ test('reasoning-only turns and cancelled turns do not speak', () => {
   relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, []);
 });
+
+test('memory projection revocation discards buffered speech and resumes listening', async () => {
+  const spoken = [];
+  const listening = [];
+  const relay = createAvatarRelay(
+    (text) => spoken.push(text),
+    () => {},
+    () => listening.push('cancel'),
+    () => listening.push('pause'),
+    () => listening.push('resume'),
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'revoked' });
+  relay({ type: 'assistant_stream_delta', id: 'revoked', delta: 'revoked answer' });
+  relay({ type: 'assistant_turn_cancelled' });
+  relay({ type: 'assistant_stream_end', id: 'revoked' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+  assert.equal(listening.at(-1), 'resume');
+
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'safe new answer' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['safe new answer']);
+});
+
+test('worker crash recovery clears buffered reply instead of speaking error text', () => {
+  const spoken = [];
+  const states = [];
+  const relay = createAvatarRelay(
+    (text) => spoken.push(text),
+    () => {},
+    () => states.push('cancel'),
+    () => states.push('pause'),
+    () => states.push('resume'),
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'crashed' });
+  relay({ type: 'assistant_stream_delta', id: 'crashed', delta: 'unfinished' });
+  relay({ type: 'assistant_stream_end', id: 'crashed' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'unfinished' } });
+  relay({ type: 'message', message: { role: 'assistant', content: '[FATAL] Worker crashed.' } });
+  relay({ type: 'assistant_turn_cancelled' });
+  assert.deepEqual(spoken, []);
+  assert.equal(states.at(-1), 'resume');
+});
