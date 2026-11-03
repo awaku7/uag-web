@@ -90,7 +90,7 @@
 <details class="avatar-panel" ontoggle={(event) => { if (!event.currentTarget.open) close(); }}>
   <summary>{labels.title}</summary>
   <div class="controls">
-    <select aria-label={labels.avatar} bind:value={avatar} onchange={() => { voice = avatar; close(); }} disabled={loading}>
+    <select aria-label={labels.avatar} bind:value={avatar} onchange={(event) => { voice = event.currentTarget.value; close(); }} disabled={loading}>
       {#each presets as item}<option value={item.id}>{item.name}</option>{/each}
     </select>
     <select aria-label={labels.voice} bind:value={voice} onchange={close} disabled={loading}>
