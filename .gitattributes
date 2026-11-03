@@ -1,0 +1,2 @@
+# Vite output contains line-ending spaces inside compiled template literals.
+src/uag_web/static/assets/* whitespace=-blank-at-eol
