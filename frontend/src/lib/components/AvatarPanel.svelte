@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getLang } from '../i18n.svelte.js';
   import { subscribeAvatar } from '../stores.svelte.js';
-  import { loadAvatar, createSpeaker, createAvatarRelay, createContinuousDictation } from '../avatar.js';
+  import { loadAvatar, createSpeaker, createAvatarRelay, createContinuousDictation, createAvatarLatency, AVATAR_FINAL_SILENCE_MS } from '../avatar.js';
   let { onSend, onInterrupt } = $props();
   let presets = $state([]);
   let voices = $state([]);
@@ -17,11 +17,12 @@
   let attempt = 0;
   let dictation;
   let relay;
+  const latency = createAvatarLatency();
   let listening = $state(false);
   let canListen = $state(false);
   const words = {
-    ja: { title: '声・アバター', avatar: 'アバター', voice: '音声', kaiNote: 'カイは音声のみ公開されています。カイ専用のリップシンク用アバターはありません。', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: 'アバターまたは音声モデルが未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '無音が約1.1秒続くと発話を送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
-    en: { title: 'Voice & avatar', avatar: 'Avatar', voice: 'Voice', kaiNote: 'Kai is a TTS voice only; no matching lip-sync avatar has been published.', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Avatar or voice models have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 1.1 seconds of silence. Audio may be sent to the browser provider.', retry: 'Resume playback' },
+    ja: { title: '声・アバター', avatar: 'アバター', voice: '音声', kaiNote: 'カイは音声のみ公開されています。カイ専用のリップシンク用アバターはありません。', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: 'アバターまたは音声モデルが未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '確定した音声認識結果から約0.8秒（未確定の場合は約1.1秒）の無音で送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
+    en: { title: 'Voice & avatar', avatar: 'Avatar', voice: 'Voice', kaiNote: 'Kai is a TTS voice only; no matching lip-sync avatar has been published.', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Avatar or voice models have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 0.8 s of silence for a final transcript (1.1 s for interim results). Audio may be sent to the browser provider.', retry: 'Resume playback' },
   };
   let labels = $derived(words[getLang()] || words.en);
   let selectedAvatar = $derived(presets.find((item) => item.id === avatar));
@@ -45,7 +46,7 @@
       const loaded = await loadAvatar(target, avatar, voice);
       if (current !== attempt) { loaded.avatar.destroy(); loaded.tts.destroy(); return; }
       runtime = loaded;
-      speaker = createSpeaker(loaded, () => { error = labels.failed; });
+      speaker = createSpeaker(loaded, () => { error = labels.failed; }, latency);
     } catch (_) { if (current === attempt) { close(); error = labels.failed; } }
     finally { if (current === attempt) loading = false; }
   }
@@ -79,11 +80,12 @@
       },
       (value) => { listening = value; },
       () => { error = labels.micError; },
-      1100,
+      AVATAR_FINAL_SILENCE_MS,
+      latency,
     );
-    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume(), () => labels.toolWait);
+    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume(), () => labels.toolWait, latency);
     const unsubscribe = subscribeAvatar(relay);
-    return () => { mounted = false; unsubscribe(); close(); };
+    return () => { mounted = false; unsubscribe(); close(); latency.reset(); };
   });
 </script>
 
