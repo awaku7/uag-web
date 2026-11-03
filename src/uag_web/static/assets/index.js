@@ -15,7 +15,7 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
   }
 
   return (event) => {
-    if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'human_ask'].includes(event.type)) {
+    if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'assistant_turn_cancelled', 'human_ask'].includes(event.type)) {
       id = null;
       text = '';
       streamAnswer = '';
@@ -23,13 +23,13 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
       turnActive = event.type === 'avatar_stop' && event.reason === 'new_input';
       toolAnnounced = false;
       stop();
-      const keepCapture = event.type === 'assistant_stream_interrupted'
-        || event.preserveCapture === true
-        || turnActive;
+      const interrupted = event.type === 'assistant_stream_interrupted'
+        || event.type === 'assistant_turn_cancelled';
+      const keepCapture = interrupted || event.preserveCapture === true || turnActive;
       if (turnActive) pauseCapture();
       // An acknowledgement of our barge-in must not cancel the new dictation.
       if (!keepCapture) cancelCapture();
-      if (event.type === 'assistant_stream_interrupted') resumeCapture();
+      if (interrupted) resumeCapture();
     } else if (!turnActive) {
       // Reconnect snapshots and messages from already-cancelled turns stay silent.
       return;
