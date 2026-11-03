@@ -62,6 +62,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   let streamAnswer = '';
   let storedAnswer = '';
   let turnActive = false;
+  let suppressStreamStart = false;
   let toolAnnounced = false;
 
   function speakAndResume(value) {
@@ -78,6 +79,9 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       streamAnswer = '';
       storedAnswer = '';
       turnActive = event.type === 'avatar_stop' && event.reason === 'new_input';
+      // A stop/cancellation must not re-arm from another stream in the same turn.
+      // A fresh user message clears this guard; init allows new live streams.
+      suppressStreamStart = event.type !== 'init' && !turnActive;
       toolAnnounced = false;
       stop();
       const interrupted = event.type === 'assistant_stream_interrupted'
@@ -87,14 +91,25 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       // An acknowledgement of our barge-in must not cancel the new dictation.
       if (!keepCapture) cancelCapture();
       if (interrupted) resumeCapture();
-    } else if (!turnActive) {
-      // Reconnect snapshots and messages from already-cancelled turns stay silent.
-      return;
-    } else if (event.type === 'assistant_stream_start') {
-      if (event.snapshot) return;
+    } else if (event.type === 'message' && !event.snapshot && event.message?.role === 'user') {
+      // Other tabs/clients do not emit this tab's local avatar_stop(new_input).
+      // The server's user message is the authoritative fresh-turn boundary.
+      if (!turnActive) {
+        turnActive = true;
+        suppressStreamStart = false;
+        pauseCapture();
+      }
+    } else if (event.type === 'assistant_stream_start' && !event.snapshot) {
+      // Some providers start streaming before a stored user message arrives.
+      // Never re-arm a manually stopped or cancelled turn from a late stream.
+      if (!turnActive && !suppressStreamStart) turnActive = true;
+      if (!turnActive) return;
       id = event.id;
       text = '';
       pauseCapture();
+    } else if (!turnActive) {
+      // Reconnect snapshots and messages from already-cancelled turns stay silent.
+      return;
     } else if (event.type === 'tool_activity') {
       if (event.name && !toolAnnounced) {
         toolAnnounced = true;
