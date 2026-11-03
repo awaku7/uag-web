@@ -12,20 +12,23 @@ After release:
 
 ```sh
 pip install uag-web
-uag-web
+uaga
 ```
 
 The launchers remain separate:
 
 | Command | Application |
 | --- | --- |
-| `uag-web` or `python -m uag_web` | Independent Web application |
+| `uaga` or `python -m uag_web` | Independent Web application |
 | `uagw` or `python -m uagent.web` | Existing bundled UAG Web |
-| `uaga` | Existing A2A server |
+| `uaga2a` | A2A server (previous command: `uaga`) |
 
 Both Web applications use port 8000. Stop one before starting the other;
 concurrent operation is not supported. Installing or uninstalling `uag-web`
-does not replace or remove the bundled Web or the `uagw`/`uaga` launchers.
+keeps the bundled Web and `uagw` intact. The core A2A command changes from
+`uaga` to `uaga2a` to free `uaga` for this application; update existing A2A scripts.
+`python -m uagent.a2a.server` remains available. This naming change is a draft
+proposal and has not been merged or published.
 
 Development (Python 3.11+, Node.js):
 

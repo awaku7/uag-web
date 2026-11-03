@@ -18,7 +18,7 @@ with ZipFile(wheel) as archive:
     assert any(dep.startswith("uag[") for dep in metadata.get_all("Requires-Dist", []))
     entry_file = next(name for name in names if name.endswith("/entry_points.txt"))
     entry_points = archive.read(entry_file).decode()
-    assert "uag-web = uag_web.server:main" in entry_points
+    assert "uaga = uag_web.server:main" in entry_points
     assert "uagw =" not in entry_points
-    assert "uaga =" not in entry_points
+    assert "uaga2a =" not in entry_points
 print(f"Distribution checks passed: {wheel.name}")

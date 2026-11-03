@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-uag-web = "uag_web.server:main"
+uaga = "uag_web.server:main"
 
 [project.optional-dependencies]
 quality = ["black==26.10.0", "ruff==0.16.10"]

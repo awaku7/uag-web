@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="uag-web-install-") as temporary:
         name: hashlib.sha256(
             (binaries / (name + (".exe" if os.name == "nt" else ""))).read_bytes()
         ).hexdigest()
-        for name in ("uagw", "uaga")
+        for name in ("uagw", "uaga2a")
     }
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
@@ -69,10 +69,11 @@ assert importlib.util.find_spec('uagent.web') is not None
 assert importlib.util.find_spec('uagent.web_impl') is not None
 core = {ep.name: ep.value for ep in metadata.distribution('uag').entry_points}
 assert core['uagw'] == 'uagent.web:main'
-assert core['uaga'] == 'uagent.a2a.server:main'
+assert core['uaga2a'] == 'uagent.a2a.server:main'
+assert 'uaga' not in core
 scripts = [ep for ep in metadata.distribution('uag-web').entry_points if ep.group == 'console_scripts']
-assert [(ep.name, ep.value) for ep in scripts] == [('uag-web', 'uag_web.server:main')]
-assert (Path(sys.executable).parent / ('uag-web.exe' if os.name == 'nt' else 'uag-web')).is_file()
+assert [(ep.name, ep.value) for ep in scripts] == [('uaga', 'uag_web.server:main')]
+assert (Path(sys.executable).parent / ('uaga.exe' if os.name == 'nt' else 'uaga')).is_file()
 with patch('uag_web.server.main') as independent:
     scripts[0].load()()
     independent.assert_called_once_with()
@@ -104,6 +105,17 @@ with patch('uagent.web.main') as bundled:
         env=env,
         check=True,
     )
+    a2a = subprocess.run(
+        [str(binaries / ("uaga2a.exe" if os.name == "nt" else "uaga2a")), "--help"],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert a2a.returncode == 0, a2a.stderr
+    assert "uaga2a" in a2a.stdout and "--port" in a2a.stdout
     subprocess.run([*pip, "uninstall", "--yes", "uag-web"], check=True)
     subprocess.run(
         [
@@ -121,7 +133,7 @@ from uagent.web import app
 
 assert importlib.util.find_spec('uag_web') is None
 binaries = Path(sys.executable).parent
-assert not (binaries / ('uag-web.exe' if os.name == 'nt' else 'uag-web')).exists()
+assert not (binaries / ('uaga.exe' if os.name == 'nt' else 'uaga')).exists()
 for name, expected in json.loads(os.environ['CORE_LAUNCHERS_SHA']).items():
     executable = binaries / (name + ('.exe' if os.name == 'nt' else ''))
     assert hashlib.sha256(executable.read_bytes()).hexdigest() == expected
@@ -129,7 +141,7 @@ with TestClient(app) as client:
     assert client.get('/').status_code == 200
     assert client.get('/static/assets/index.js').status_code == 200
     assert client.get('/api/auth/status').json()['authenticated']
-os.write(1, b'Uninstalled uag-web: bundled Web, uagw and uaga preserved\\n')
+os.write(1, b'Uninstalled uag-web: bundled Web, uagw and uaga2a preserved\\n')
 """,
         ],
         cwd=root,
