@@ -450,3 +450,29 @@ test('normal local server echoes do not reset a live avatar turn', () => {
   relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['hello back']);
 });
+
+test('Stop voice resumes paused continuous dictation at terminal completion', () => {
+  const spoken = [];
+  const states = [];
+  const relay = createAvatarRelay(
+    (text) => spoken.push(text),
+    () => {},
+    () => states.push('cancel'),
+    () => states.push('pause'),
+    () => states.push('resume'),
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_local_user_input', client_message_id: 'dictation-1' });
+  relay({ type: 'avatar_stop', preserveCapture: true });
+  // Repeated stops must not lose the pending microphone cleanup.
+  relay({ type: 'avatar_stop', preserveCapture: true });
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'dictation-1', content: 'transcript' } });
+  relay({ type: 'assistant_stream_start', id: 'stopped' });
+  relay({ type: 'assistant_stream_delta', id: 'stopped', delta: 'do not speak' });
+  relay({ type: 'assistant_stream_end', id: 'stopped' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'do not speak' } });
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+  assert.deepEqual(states, ['pause', 'resume']);
+});
