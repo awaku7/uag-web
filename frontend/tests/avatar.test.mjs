@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeaker, createAvatarRelay, createContinuousDictation, spokenText, loadAvatar } from '../src/lib/avatar.js';
+import { createSpeaker, createAvatarRelay, createContinuousDictation, createAvatarLatency, AVATAR_FINAL_SILENCE_MS, AVATAR_INTERIM_SILENCE_MS, spokenText, loadAvatar } from '../src/lib/avatar.js';
 import { classifyEmotion } from '../src/lib/emotion.js';
 
 test('avatar relay speaks only a completed live response, using replacement text', () => {
@@ -515,4 +515,103 @@ test('Kai is a supported TTS voice but not a published lip-sync avatar', async (
   await assert.rejects(loadAvatar(null, 'hashiro', 'unpublished'), /Unknown voice/);
   // The supported combination passes ID validation; Node has no WebGPU.
   await assert.rejects(loadAvatar(null, 'hashiro', 'kai'), /WebGPU requires/);
+});
+
+
+test('speech timing keeps interim gaps conservative and shortens finalized silence', async () => {
+  assert.equal(AVATAR_FINAL_SILENCE_MS, 800);
+  assert.equal(AVATAR_INTERIM_SILENCE_MS, 1100);
+  const recognitions = [];
+  const sent = [];
+  const dictation = createContinuousDictation(
+    () => {
+      const recognition = {
+        start() {},
+        stop() { this.onend?.(); },
+        abort() {},
+      };
+      recognitions.push(recognition);
+      return recognition;
+    },
+    (text) => { sent.push(text); return true; },
+    () => {},
+    () => assert.fail('unexpected recognition error'),
+    15, // Scaled down to exercise timing in a unit test.
+  );
+  dictation.start();
+  const result = (transcript, isFinal) => ({
+    results: [{ 0: { transcript }, isFinal }],
+  });
+  recognitions[0].onresult(result('まだ考えています', false));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.deepEqual(sent, [], 'interim hypotheses must retain the 1100 ms gap');
+  recognitions[0].onresult(result('これで完成です', true));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.deepEqual(sent, ['これで完成です']);
+  assert.equal(recognitions.length, 1, 'dictation remains paused while responding');
+  dictation.cancel();
+});
+
+test('voice timing records only durations and ignores duplicate/cancelled audio', async () => {
+  let time = 0;
+  const measurements = [];
+  const latency = createAvatarLatency(
+    () => time,
+    (name, start, end) => measurements.push({ name, duration: end - start }),
+  );
+  latency.recognized();
+  time = 800;
+  latency.sent();
+  const played = [];
+  const runtime = {
+    tts: { async *speakStream() { yield { pcm: [1], sampleRate: 44100 }; }, destroy() {} },
+    avatar: {
+      async speakStream(chunks) { for await (const c of chunks) played.push(c); },
+      stop() {}, destroy() {},
+    },
+  };
+  const speaker = createSpeaker(runtime, () => assert.fail('unexpected TTS error'), latency);
+  const relay = createAvatarRelay(
+    (text) => speaker.speak(text),
+    () => speaker.stop(), () => {}, () => {}, () => {}, 'tool cue', latency,
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'message', message: { role: 'assistant', content: '回答です。' } });
+  time = 1300;
+  relay({ type: 'assistant_turn_complete' });
+  time = 1360;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(measurements, [
+    { name: 'uagav:mic-result-to-send', duration: 800 },
+    { name: 'uagav:send-to-final', duration: 500 },
+    { name: 'uagav:final-to-first-tts-chunk', duration: 60 },
+  ]);
+  assert.equal(played.length, 1);
+  relay({ type: 'assistant_turn_complete' });
+  assert.equal(measurements.length, 3);
+
+  latency.recognized();
+  latency.sent();
+  latency.reset();
+  time = 2000;
+  relay({ type: 'avatar_stop', reason: 'interrupt' });
+  relay({ type: 'assistant_turn_complete' });
+  latency.firstAudioChunk();
+  assert.equal(measurements.length, 4, 'a new mic submission is measurable but cancellation cannot report audio');
+  speaker.destroy();
+});
+
+test('voice timing does not record a failed or cancelled mic submission', () => {
+  let time = 10;
+  const measurements = [];
+  const latency = createAvatarLatency(
+    () => time, (name) => measurements.push(name),
+  );
+  latency.recognized();
+  latency.reset();
+  time = 200;
+  latency.sent();
+  latency.completed();
+  latency.firstAudioChunk();
+  assert.deepEqual(measurements, []);
 });
