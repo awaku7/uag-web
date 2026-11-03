@@ -1,8 +1,8 @@
 # UAG Web
 
 Svelte + FastAPI Web host for [Universal AI Gateway](https://github.com/awaku7/agentcli).
-The independent launch command is **`uagav` (UAG Avatar)**. Avatar rendering and
-ZEN-LipSync are not implemented in this change.
+The independent launch command is **`uagav` (UAG Avatar)**. Standard ZEN-LipSync avatars and matching ZEN-TTS voices can be installed locally.
+See [voice/avatar setup](docs/AVATAR.ja.md); SDKs, weights and materials are not bundled.
 
 UAG's existing Web, UI assets and launchers remain unchanged:
 
@@ -57,4 +57,4 @@ The existing UI still uses Tailwind CDN and Google Fonts. Offline UI, real OIDC,
 provider conversation, Web-mediated Sandbox, mobile/audio acceptance and inherited
 dependency audit findings remain release checks. See [coexistence](docs/COEXISTENCE.ja.md).
 Windows, Linux and macOS remain supported targets. ZEN-LipSync source/SDK/assets
-are not included; any future integration needs a separate license review and PR.
+are not included in the repository or distributions. See the setup guide for usage terms.

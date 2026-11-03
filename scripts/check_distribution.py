@@ -10,6 +10,9 @@ with ZipFile(wheel) as archive:
     assert "uag_web/static/index.html" in names
     assert "uag_web/static/assets/index.js" in names
     assert not any(name.startswith("uagent/") for name in names)
+    assert not any(
+        name.endswith((".ztm", ".wgw", ".lip8", ".wasm", ".pack")) for name in names
+    )
     metadata = Parser().parsestr(
         archive.read(
             next(name for name in names if name.endswith("/METADATA"))

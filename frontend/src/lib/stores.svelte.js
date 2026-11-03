@@ -1,3 +1,10 @@
+let avatarListener = null;
+export function subscribeAvatar(listener) {
+  avatarListener = listener;
+  return () => { if (avatarListener === listener) avatarListener = null; };
+}
+function stopAvatar() { avatarListener?.({ type: 'avatar_stop' }); }
+
 const _state = $state({
   ws: null,
   connected: false,
@@ -84,6 +91,7 @@ function appendConnectionError(message) {
 }
 
 function openRoomSocket(roomId) {
+  stopAvatar();
   _state.roomId = roomId;
   history.replaceState(null, '', `/room/${encodeURIComponent(roomId)}`);
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -111,6 +119,7 @@ function openRoomSocket(roomId) {
   newWs.onclose = (event) => {
     // A replaced socket cannot disconnect the active room or schedule a retry.
     if (_state.ws !== newWs) return;
+    stopAvatar();
     _state.connected = false;
     _state.ws = null;
     if (event.code === 1008) {
@@ -197,6 +206,7 @@ export function connect() {
 }
 
 function handleWsMessage(data) {
+  avatarListener?.(data);
   switch (data.type) {
     case 'init':
       _state.privateSession = !!data.private_session;
@@ -290,6 +300,7 @@ export function onMessage(type, handler) {
 }
 
 export function sendUserInput(text, attachments) {
+  stopAvatar();
   const ws = _state.ws;
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   const clientMessageId = globalThis.crypto?.randomUUID?.()
@@ -325,6 +336,7 @@ export function sendUserInput(text, attachments) {
 }
 
 export function sendCommand(text) {
+  stopAvatar();
   const ws = _state.ws;
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
   try {
@@ -340,6 +352,7 @@ export function sendDisplayReasoningToggle() {
 }
 
 export function sendInterrupt() {
+  stopAvatar();
   const ws = _state.ws;
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: 'interrupt' }));
