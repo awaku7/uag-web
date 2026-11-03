@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getLang } from '../i18n.svelte.js';
   import { subscribeAvatar } from '../stores.svelte.js';
-  import { loadAvatar, createSpeaker, createAvatarRelay, createDictation } from '../avatar.js';
+  import { loadAvatar, createSpeaker, createAvatarRelay, createContinuousDictation } from '../avatar.js';
   let { onSend, onInterrupt } = $props();
   let presets = $state([]);
   let voice = $state('marine');
@@ -18,14 +18,14 @@
   let listening = $state(false);
   let canListen = $state(false);
   const words = {
-    ja: { title: '声・アバター', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '話しかける', end: '聞き取り停止', ai: 'AIによる映像', unavailable: '標準アバターは未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', mic: '聞き取りはブラウザの音声認識を使います。音声がブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
-    en: { title: 'Voice & avatar', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Speak', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Standard avatars have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', mic: 'Dictation uses browser speech recognition. Audio may be sent to the browser provider.', retry: 'Resume playback' },
+    ja: { title: '声・アバター', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: '標準アバターは未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', mic: '無音が約1.1秒続くと発話を送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
+    en: { title: 'Voice & avatar', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Standard avatars have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', mic: 'Speech is sent after about 1.1 seconds of silence. Audio may be sent to the browser provider.', retry: 'Resume playback' },
   };
   let labels = $derived(words[getLang()] || words.en);
   let selected = $derived(presets.find((item) => item.id === voice));
 
   function stop() { speaker?.stop(); }
-  function stopVoice() { relay?.({ type: 'avatar_stop' }); }
+  function stopVoice() { relay?.({ type: 'avatar_stop', preserveCapture: true }); }
   function close() {
     attempt++;
     stopVoice(); dictation?.cancel();
@@ -47,13 +47,9 @@
     finally { if (current === attempt) loading = false; }
   }
   function listen() {
-    if (listening) { dictation?.finish(); return; }
+    if (listening) { dictation?.cancel(); return; }
     onInterrupt(); stopVoice(); error = '';
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = getLang() === 'ja' ? 'ja-JP' : getLang();
-    recognition.continuous = false; recognition.interimResults = false;
-    dictation?.start(recognition);
+    dictation?.start();
   }
   onMount(() => {
     let mounted = true;
@@ -63,12 +59,23 @@
       const config = await response.json();
       if (mounted) presets = config.presets;
     }).catch(() => {});
-    dictation = createDictation(
-      (text) => { if (!onSend(text, [])) error = labels.blocked; },
+    dictation = createContinuousDictation(
+      () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = getLang() === 'ja' ? 'ja-JP' : getLang();
+        return recognition;
+      },
+      (text) => {
+        if (!onSend(text, [])) { error = labels.blocked; return false; }
+        error = '';
+        return true;
+      },
       (value) => { listening = value; },
-      () => { error = labels.blocked; },
+      () => { error = labels.micError; },
+      1100,
     );
-    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel());
+    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume());
     const unsubscribe = subscribeAvatar(relay);
     return () => { mounted = false; unsubscribe(); close(); };
   });

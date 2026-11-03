@@ -1,4 +1,6 @@
 // Own integration code only. ZEN SDKs and weights are installed by the operator.
+import { classifyEmotion, emotionBlend, splitSpeechSegments } from './emotion.js';
+
 export const assetBase = '/api/avatar/files';
 export async function loadAvatar(container, voice) {
   if (!['marine', 'hashiro', 'kikka'].includes(voice)) throw new Error('Unknown avatar');
@@ -30,50 +32,100 @@ export function createSpeaker(runtime, onError = () => {}) {
   return {
     speak(text) {
       const value = spokenText(text);
-      if (!value) return;
+      if (!value) return Promise.resolve();
+      const segments = splitSpeechSegments(value);
       const current = generation;
       queue = queue.then(async () => {
         if (current !== generation) return;
         async function* chunks() {
-          for await (const part of runtime.tts.speakStream(value)) {
-            if (current !== generation) return;
-            yield { pcm: part.pcm, sampleRate: part.sampleRate };
+          for (const segment of segments.length ? segments : [value]) {
+            const options = { emotion: emotionBlend[classifyEmotion(segment)] };
+            for await (const part of runtime.tts.speakStream(segment, options)) {
+              if (current !== generation) return;
+              yield { pcm: part.pcm, sampleRate: part.sampleRate };
+            }
           }
         }
         await runtime.avatar.speakStream(chunks());
       }).catch((error) => { if (current === generation) onError(error); });
+      return queue;
     },
     stop() { generation++; runtime.avatar.stop(); },
     destroy() { generation++; runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
   };
 }
 
-// Only live, completed responses are spoken; history/reconnect never replays.
-export function createAvatarRelay(speak, stop, cancelCapture = () => {}) {
+// Speak only fresh completed responses; never replay history or stream snapshots.
+export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCapture = () => {}, resumeCapture = () => {}) {
   let id = null;
   let text = '';
+  let streamSeen = false;
+  let awaitingFinalMessage = false;
+
+  function speakAndResume(value) {
+    let playback;
+    try { playback = speak(value); }
+    catch (_) { resumeCapture(); return; }
+    Promise.resolve(playback).catch(() => {}).finally(resumeCapture);
+  }
+
   return (event) => {
     if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'human_ask'].includes(event.type)) {
-      id = null; text = ''; stop();
+      id = null;
+      text = '';
+      streamSeen = event.type === 'init' || event.type === 'assistant_stream_interrupted';
+      awaitingFinalMessage = event.type === 'avatar_stop' && event.reason === 'new_input';
+      stop();
+      const keepCapture = event.type === 'assistant_stream_interrupted'
+        || event.preserveCapture === true
+        || awaitingFinalMessage;
+      if (awaitingFinalMessage) pauseCapture();
       // An acknowledgement of our barge-in must not cancel the new dictation.
-      if (event.type !== 'assistant_stream_interrupted') cancelCapture();
+      if (!keepCapture) cancelCapture();
+      if (event.type === 'assistant_stream_interrupted') resumeCapture();
     } else if (event.type === 'assistant_stream_start') {
-      id = event.snapshot ? null : event.id; text = '';
+      streamSeen = true;
+      id = event.snapshot ? null : event.id;
+      text = '';
+      if (!event.snapshot) pauseCapture();
+    } else if (event.type === 'message') {
+      const message = event.message;
+      if (event.snapshot || message?.role !== 'assistant') return;
+      const content = typeof message.content === 'string' ? message.content : '';
+      if (id !== null) {
+        // Some providers deliver the complete assistant message but no deltas.
+        // Keep it for the stream-end event rather than speaking twice.
+        if (content.trim()) text = content;
+      } else if (awaitingFinalMessage && !streamSeen && content.trim()) {
+        // Non-streaming provider fallback: speak only a fresh final message.
+        awaitingFinalMessage = false;
+        pauseCapture();
+        speakAndResume(content);
+      }
     } else if (id !== null && event.id === id) {
       if (event.type === 'assistant_stream_delta') text += event.delta || '';
       if (event.type === 'assistant_stream_replace') text = event.content || '';
-      if (event.type === 'assistant_stream_end') { speak(text); id = null; text = ''; }
+      if (event.type === 'assistant_stream_end') {
+        if (text.trim()) awaitingFinalMessage = false;
+        else streamSeen = false;
+        speakAndResume(text);
+        id = null;
+        text = '';
+      }
     }
   };
 }
 
-// Recognition results are bound to one session attempt, including already queued callbacks.
+// One-shot recognition helper retained for callers that need a single utterance.
 export function createDictation(onText, onState, onError) {
   let active = null;
   function cancel() {
-    const previous = active; active = null;
+    const previous = active;
+    active = null;
     if (previous) {
-      previous.onresult = null; previous.onend = null; previous.onerror = null;
+      previous.onresult = null;
+      previous.onend = null;
+      previous.onerror = null;
       previous.abort();
     }
     onState(false);
@@ -82,7 +134,8 @@ export function createDictation(onText, onState, onError) {
     cancel,
     finish() { active?.stop(); },
     start(recognition) {
-      cancel(); active = recognition;
+      cancel();
+      active = recognition;
       recognition.onresult = (event) => {
         if (active !== recognition) return;
         const text = event.results[0]?.[0]?.transcript?.trim();
@@ -93,5 +146,147 @@ export function createDictation(onText, onState, onError) {
       try { recognition.start(); onState(true); }
       catch (_) { cancel(); onError(); }
     },
+  };
+}
+
+// Continuous browser speech recognition: a silence gap closes each utterance.
+// The mic stays paused while the assistant responds and resumes after playback.
+export function createContinuousDictation(makeRecognition, onText, onState, onError, silenceMs = 1100) {
+  let active = null;
+  let enabled = false;
+  let paused = false;
+  let silenceTimer = null;
+
+  function clearTimer() {
+    if (silenceTimer !== null) clearTimeout(silenceTimer);
+    silenceTimer = null;
+  }
+
+  function scheduleStart() {
+    setTimeout(() => {
+      if (enabled && !paused && !active) startRecognition();
+    }, 250);
+  }
+
+  function startRecognition() {
+    if (!enabled || paused || active) return;
+    let recognition;
+    try {
+      recognition = makeRecognition();
+    } catch (error) {
+      enabled = false;
+      onState(false);
+      onError(error);
+      return;
+    }
+
+    let transcript = '';
+    active = recognition;
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.onresult = (event) => {
+      if (active !== recognition) return;
+      transcript = Array.from(event.results || [])
+        .map((result) => result?.[0]?.transcript || '')
+        .join(' ')
+        .trim();
+      if (!transcript) return;
+      clearTimer();
+      silenceTimer = setTimeout(() => {
+        if (active !== recognition) return;
+        try { recognition.stop(); }
+        catch (_) { recognition.onend?.(); }
+      }, silenceMs);
+    };
+    recognition.onerror = (event) => {
+      if (active !== recognition) return;
+      active = null;
+      clearTimer();
+      if (enabled && !paused && ['no-speech', 'aborted'].includes(event?.error)) {
+        scheduleStart();
+      } else {
+        enabled = false;
+        paused = false;
+        onState(false);
+        onError(event);
+      }
+    };
+    recognition.onend = () => {
+      if (active !== recognition) return;
+      active = null;
+      clearTimer();
+      if (enabled && !paused && transcript) {
+        paused = true;
+        onState(true);
+        if (onText(transcript) === false) {
+          paused = false;
+          scheduleStart();
+        }
+      } else if (enabled && !paused) {
+        scheduleStart();
+      } else if (!enabled) {
+        onState(false);
+      }
+    };
+
+    try {
+      recognition.start();
+      onState(true);
+    } catch (error) {
+      active = null;
+      enabled = false;
+      paused = false;
+      clearTimer();
+      onState(false);
+      onError(error);
+    }
+  }
+
+  function pause() {
+    if (!enabled || paused) return;
+    paused = true;
+    clearTimer();
+    const previous = active;
+    active = null;
+    if (previous) {
+      previous.onresult = null;
+      previous.onend = null;
+      previous.onerror = null;
+      try { previous.abort(); } catch (_) {}
+    }
+  }
+
+  function resume() {
+    if (!enabled || !paused) return;
+    paused = false;
+    startRecognition();
+  }
+
+  function cancel() {
+    enabled = false;
+    paused = false;
+    clearTimer();
+    const previous = active;
+    active = null;
+    if (previous) {
+      previous.onresult = null;
+      previous.onend = null;
+      previous.onerror = null;
+      try { previous.abort(); } catch (_) {}
+    }
+    onState(false);
+  }
+
+  return {
+    start() {
+      if (enabled) return;
+      enabled = true;
+      paused = false;
+      startRecognition();
+    },
+    pause,
+    resume,
+    cancel,
+    finish: cancel,
   };
 }
