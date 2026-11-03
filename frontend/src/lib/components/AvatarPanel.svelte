@@ -83,7 +83,7 @@
       AVATAR_FINAL_SILENCE_MS,
       latency,
     );
-    relay = createAvatarRelay((text) => speaker?.speak(text), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume(), () => labels.toolWait, latency);
+    relay = createAvatarRelay((text, options) => speaker?.speak(text, options), stop, () => dictation?.cancel(), () => dictation?.pause(), () => dictation?.resume(), () => labels.toolWait, latency);
     const unsubscribe = subscribeAvatar(relay);
     return () => { mounted = false; unsubscribe(); close(); latency.reset(); };
   });
