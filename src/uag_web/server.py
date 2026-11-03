@@ -75,6 +75,7 @@ from .routes_api import (
 )
 from .routes_observability import get_observability_trace
 from .routes_integration import get_integration_manifest
+from . import routes_avatar  # noqa: F401 -- register independent avatar routes
 from .routes_ws import websocket_endpoint
 from .init import init_web, main as _web_main
 

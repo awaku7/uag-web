@@ -1,0 +1,93 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createSpeaker, createAvatarRelay, spokenText } from '../src/lib/avatar.js';
+
+test('avatar relay speaks only a completed live response, using replacement text', () => {
+  const spoken = []; let stopped = 0;
+  const relay = createAvatarRelay((text) => spoken.push(text), () => stopped++);
+  relay({ type: 'init', messages: [{ role: 'assistant', content: 'history' }] });
+  relay({ type: 'assistant_stream_end', id: 'old' });
+  relay({ type: 'assistant_stream_start', id: 'new' });
+  relay({ type: 'assistant_stream_delta', id: 'old', delta: 'wrong room' });
+  relay({ type: 'assistant_stream_delta', id: 'new', delta: 'draft' });
+  relay({ type: 'assistant_stream_replace', id: 'new', content: 'final' });
+  relay({ type: 'assistant_stream_end', id: 'new' });
+  relay({ type: 'assistant_stream_end', id: 'new' });
+  assert.deepEqual(spoken, ['final']); assert.equal(stopped, 1);
+});
+
+test('interrupt, human ask and connection reset discard pending speech', () => {
+  for (const type of ['assistant_stream_interrupted', 'human_ask', 'init', 'avatar_stop']) {
+    const spoken = []; let stopped = 0;
+    const relay = createAvatarRelay((text) => spoken.push(text), () => stopped++);
+    relay({ type: 'assistant_stream_start', id: 1 });
+    relay({ type: 'assistant_stream_delta', id: 1, delta: 'private content' });
+    relay({ type, id: 1 });
+    relay({ type: 'assistant_stream_end', id: 1 });
+    assert.deepEqual(spoken, []); assert.equal(stopped, 1);
+  }
+});
+
+test('synthesis finishing after stop cannot produce audible chunks', async () => {
+  let release; let began;
+  const started = new Promise((resolve) => { began = resolve; });
+  const pending = new Promise((resolve) => { release = resolve; });
+  const played = [];
+  const runtime = {
+    tts: { async *speakStream() { began(); await pending; yield { pcm: [1], sampleRate: 44100 }; }, destroy() {} },
+    avatar: { async speakStream(chunks) { for await (const c of chunks) played.push(c); }, stop() {}, destroy() {} },
+  };
+  const speaker = createSpeaker(runtime);
+  speaker.speak('hello'); await started; speaker.stop(); release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(played, []);
+  speaker.destroy();
+});
+
+test('code blocks and image URLs are not read aloud', () => {
+  assert.equal(spokenText('Hello ```js\nsecret()\n``` [link](https://example.com) ![image](a.png)'), 'Hello  link');
+});
+
+test('a reconnect snapshot is never spoken, even when an active retained stream ends later', () => {
+  for (const ended of [true, false]) {
+    const spoken=[];
+    const relay=createAvatarRelay(text=>spoken.push(text),()=>{});
+    relay({type:'init'});
+    relay({type:'assistant_stream_start',id:'retained',snapshot:true});
+    relay({type:'assistant_stream_replace',id:'retained',content:'previous response',snapshot:true});
+    if (!ended) relay({type:'assistant_stream_delta',id:'retained',delta:' continued'});
+    relay({type:'assistant_stream_end',id:'retained',snapshot:ended});
+    assert.deepEqual(spoken,[]);
+    relay({type:'assistant_stream_start',id:'live'});
+    relay({type:'assistant_stream_delta',id:'live',delta:'new response'});
+    relay({type:'assistant_stream_end',id:'live'});
+    assert.deepEqual(spoken,['new response']);
+  }
+});
+
+test('cancelled dictation cannot submit its saved result callback in a new session', async () => {
+  const {createDictation}=await import('../src/lib/avatar.js');
+  const sent=[]; const states=[];
+  const dictation=createDictation(text=>sent.push(text),value=>states.push(value),()=>{});
+  const first={start(){},stop(){},abort(){this.aborted=true;}};
+  dictation.start(first);
+  const lateResult=first.onresult;
+  dictation.cancel();
+  const second={start(){},stop(){},abort(){}};
+  dictation.start(second);
+  lateResult({results:[[{transcript:'old session'}]]});
+  second.onresult({results:[[{transcript:'new session'}]]});
+  assert.equal(first.aborted,true);
+  assert.deepEqual(sent,['new session']);
+  dictation.cancel();
+  assert.equal(states.at(-1),false);
+});
+
+test('an agent interruption acknowledgement preserves new dictation, but context resets cancel it', () => {
+  let cancelled=0;
+  const relay=createAvatarRelay(()=>{},()=>{},()=>cancelled++);
+  relay({type:'assistant_stream_interrupted',id:'previous'});
+  assert.equal(cancelled,0);
+  for (const type of ['avatar_stop','init','human_ask']) relay({type});
+  assert.equal(cancelled,3);
+});

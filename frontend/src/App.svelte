@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import AvatarPanel from './lib/components/AvatarPanel.svelte';
   import Header from './lib/components/Header.svelte';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Chat from './lib/components/Chat.svelte';
@@ -68,6 +69,8 @@
   </div>
   <div id="chat-pane" class="flex-grow flex flex-col h-full p-4 gap-3 min-w-0" style="gap:0.75rem;">
     <Header onToggleSidebar={() => sidebarOpen = !sidebarOpen} onTogglePanel={() => { panelTab = 'settings'; panelOpen = !panelOpen; }} {panelOpen} />
+
+    <AvatarPanel onSend={handleSend} onInterrupt={handleInterrupt} />
 
     <Chat />
 
