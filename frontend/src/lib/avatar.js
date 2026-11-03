@@ -1,6 +1,51 @@
 // Own integration code only. ZEN SDKs and weights are installed by the operator.
 import { classifyEmotion, emotionBlend, splitSpeechSegments } from './emotion.js';
 
+
+// Only durations are recorded in browser Performance entries; no transcript or IDs.
+export const AVATAR_FINAL_SILENCE_MS = 800;
+export const AVATAR_INTERIM_SILENCE_MS = 1100;
+
+export function createAvatarLatency(
+  now = () => globalThis.performance?.now?.() ?? Date.now(),
+  record = (name, start, end) => {
+    try {
+      globalThis.performance?.clearMeasures?.(name);
+      globalThis.performance?.measure?.(name, { start, end });
+    } catch (_) { /* Browser timing APIs are optional. */ }
+  },
+) {
+  let lastResult = null;
+  let submitted = null;
+  let finalReply = null;
+  function duration(name, start, end) {
+    if (start !== null && end !== null && end >= start) record(name, start, end);
+  }
+  return {
+    recognized() { lastResult = now(); },
+    sent() {
+      if (lastResult === null) return;
+      const end = now();
+      duration('uagav:mic-result-to-send', lastResult, end);
+      submitted = end;
+      lastResult = null;
+      finalReply = null;
+    },
+    completed() {
+      if (submitted === null) return;
+      finalReply = now();
+      duration('uagav:send-to-final', submitted, finalReply);
+      submitted = null;
+    },
+    firstAudioChunk() {
+      if (finalReply === null) return;
+      duration('uagav:final-to-first-tts-chunk', finalReply, now());
+      finalReply = null;
+    },
+    reset() { lastResult = null; submitted = null; finalReply = null; },
+  };
+}
+
 export const assetBase = '/api/avatar/files';
 export async function loadAvatar(container, avatarId, voiceId = avatarId) {
   if (!['marine', 'hashiro', 'kikka'].includes(avatarId)) throw new Error('Unknown avatar');
@@ -27,7 +72,7 @@ export function spokenText(text) {
 }
 
 // Cancelled synthesis cannot play later, even if the SDK finishes after stop().
-export function createSpeaker(runtime, onError = () => {}) {
+export function createSpeaker(runtime, onError = () => {}, latency = null) {
   let generation = 0;
   let queue = Promise.resolve();
   return {
@@ -43,6 +88,7 @@ export function createSpeaker(runtime, onError = () => {}) {
             const options = { emotion: emotionBlend[classifyEmotion(segment)] };
             for await (const part of runtime.tts.speakStream(segment, options)) {
               if (current !== generation) return;
+              latency?.firstAudioChunk();
               yield { pcm: part.pcm, sampleRate: part.sampleRate };
             }
           }
@@ -57,7 +103,7 @@ export function createSpeaker(runtime, onError = () => {}) {
 }
 
 // Speak only fresh completed responses; never replay history or stream snapshots.
-export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCapture = () => {}, resumeCapture = () => {}, toolPhrase = 'ツールを利用します。少々お待ちください。') {
+export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCapture = () => {}, resumeCapture = () => {}, toolPhrase = 'ツールを利用します。少々お待ちください。', latency = null) {
   let id = null;
   let text = '';
   let streamAnswer = '';
@@ -82,6 +128,10 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       return;
     }
     if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'assistant_turn_cancelled', 'human_ask'].includes(event.type)) {
+      // Keep a pending microphone sample across the local send's new_input event.
+      if (event.type === 'init' || event.type === 'assistant_stream_interrupted'
+        || event.type === 'assistant_turn_cancelled'
+        || (event.type === 'avatar_stop' && event.reason !== 'new_input')) latency?.reset();
       if (event.type === 'init' || (event.type === 'avatar_stop' && event.reason === 'reset')) {
         localUserMessageIds.clear();
       }
@@ -139,6 +189,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       text = '';
       pauseCapture();
     } else if (event.type === 'assistant_turn_complete' && resumeStoppedTurn) {
+      latency?.reset();
       // A manually stopped answer is never spoken, but listening must resume.
       resumeStoppedTurn = false;
       resumeCapture();
@@ -171,8 +222,13 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       text = '';
       streamAnswer = '';
       storedAnswer = '';
-      if (answer.trim()) speakAndResume(answer);
-      else resumeCapture();
+      if (answer.trim()) {
+        latency?.completed();
+        speakAndResume(answer);
+      } else {
+        latency?.reset();
+        resumeCapture();
+      }
     } else if (id !== null && event.id === id) {
       if (event.type === 'assistant_stream_delta') text += event.delta || '';
       if (event.type === 'assistant_stream_replace') text = event.content || '';
@@ -220,7 +276,7 @@ export function createDictation(onText, onState, onError) {
 
 // Continuous browser speech recognition: a silence gap closes each utterance.
 // The mic stays paused while the assistant responds and resumes after playback.
-export function createContinuousDictation(makeRecognition, onText, onState, onError, silenceMs = 1100) {
+export function createContinuousDictation(makeRecognition, onText, onState, onError, silenceMs = AVATAR_FINAL_SILENCE_MS, latency = null) {
   let active = null;
   let enabled = false;
   let paused = false;
@@ -239,6 +295,7 @@ export function createContinuousDictation(makeRecognition, onText, onState, onEr
 
   function startRecognition() {
     if (!enabled || paused || active) return;
+    latency?.reset();
     let recognition;
     try {
       recognition = makeRecognition();
@@ -260,12 +317,17 @@ export function createContinuousDictation(makeRecognition, onText, onState, onEr
         .join(' ')
         .trim();
       if (!transcript) return;
+      latency?.recognized();
       clearTimer();
+      // Interim hypotheses can contain natural speech pauses; keep their longer gap.
+      const lastResult = event.results?.[event.results.length - 1];
+      const delay = lastResult?.isFinal === true
+        ? silenceMs : Math.max(silenceMs, AVATAR_INTERIM_SILENCE_MS);
       silenceTimer = setTimeout(() => {
         if (active !== recognition) return;
         try { recognition.stop(); }
         catch (_) { recognition.onend?.(); }
-      }, silenceMs);
+      }, delay);
     };
     recognition.onerror = (event) => {
       if (active !== recognition) return;
@@ -288,8 +350,11 @@ export function createContinuousDictation(makeRecognition, onText, onState, onEr
         paused = true;
         onState(true);
         if (onText(transcript) === false) {
+          latency?.reset();
           paused = false;
           scheduleStart();
+        } else {
+          latency?.sent();
         }
       } else if (enabled && !paused) {
         scheduleStart();
