@@ -572,7 +572,7 @@ test('voice timing records only durations and ignores duplicate/cancelled audio'
   };
   const speaker = createSpeaker(runtime, () => assert.fail('unexpected TTS error'), latency);
   const relay = createAvatarRelay(
-    (text) => speaker.speak(text),
+    (text, options) => speaker.speak(text, options),
     () => speaker.stop(), () => {}, () => {}, () => {}, 'tool cue', latency,
   );
   relay({ type: 'avatar_stop', reason: 'new_input' });
@@ -614,4 +614,62 @@ test('voice timing does not record a failed or cancelled mic submission', () => 
   latency.completed();
   latency.firstAudioChunk();
   assert.deepEqual(measurements, []);
+});
+
+test('ongoing tool announcement chunks cannot consume the final-answer TTS timing', async () => {
+  let time = 0;
+  const durations = [];
+  const latency = createAvatarLatency(
+    () => time,
+    (name, start, end) => durations.push({ name, ms: end - start }),
+  );
+  let releaseTool;
+  const toolGate = new Promise((resolve) => { releaseTool = resolve; });
+  let toolStarted;
+  const toolActive = new Promise((resolve) => { toolStarted = resolve; });
+  const chunksPlayed = [];
+  const runtime = {
+    tts: {
+      async *speakStream(text) {
+        if (text === 'tool cue') {
+          toolStarted();
+          yield { pcm: [1], sampleRate: 44100 };
+          await toolGate;
+          yield { pcm: [2], sampleRate: 44100 };
+        } else {
+          yield { pcm: [3], sampleRate: 44100 };
+        }
+      },
+      destroy() {},
+    },
+    avatar: {
+      async speakStream(chunks) {
+        for await (const chunk of chunks) chunksPlayed.push(chunk.pcm[0]);
+      },
+      stop() {}, destroy() {},
+    },
+  };
+  const speaker = createSpeaker(runtime, () => assert.fail('unexpected TTS error'), latency);
+  const relay = createAvatarRelay(
+    (text, options) => speaker.speak(text, options),
+    () => speaker.stop(), () => {}, () => {}, () => {}, 'tool cue', latency,
+  );
+  latency.recognized();
+  latency.sent();
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'tool_activity', name: 'search' });
+  await toolActive;
+  time = 50;
+  relay({ type: 'message', message: { role: 'assistant', content: 'Final answer.' } });
+  relay({ type: 'assistant_turn_complete' });
+  time = 100;
+  releaseTool();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(chunksPlayed, [1, 2, 3]);
+  assert.deepEqual(durations, [
+    { name: 'uagav:mic-result-to-send', ms: 0 },
+    { name: 'uagav:send-to-final', ms: 50 },
+    { name: 'uagav:final-to-first-tts-chunk', ms: 50 },
+  ]);
+  speaker.destroy();
 });
