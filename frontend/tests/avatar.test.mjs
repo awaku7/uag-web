@@ -476,3 +476,36 @@ test('Stop voice resumes paused continuous dictation at terminal completion', ()
   assert.deepEqual(spoken, []);
   assert.deepEqual(states, ['pause', 'resume']);
 });
+
+test('human ask preserves the active turn until its final answer', () => {
+  for (const streamed of [true, false]) {
+    const spoken = [];
+    const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+    relay({ type: 'avatar_stop', reason: 'new_input' });
+    relay({ type: 'assistant_stream_start', id: 'pre-ask' });
+    relay({ type: 'assistant_stream_delta', id: 'pre-ask', delta: 'before human ask' });
+    relay({ type: 'human_ask', message: 'Please confirm' });
+    if (streamed) {
+      relay({ type: 'assistant_stream_start', id: 'after-ask' });
+      relay({ type: 'assistant_stream_delta', id: 'after-ask', delta: 'confirmed answer' });
+      relay({ type: 'assistant_stream_end', id: 'after-ask' });
+    } else {
+      relay({ type: 'message', message: { role: 'assistant', content: 'confirmed answer' } });
+    }
+    relay({ type: 'assistant_turn_complete' });
+    assert.deepEqual(spoken, ['confirmed answer']);
+  }
+});
+
+test('human ask cannot override an earlier manual voice stop', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_stop', reason: 'stop' });
+  relay({ type: 'human_ask', message: 'Please confirm' });
+  relay({ type: 'assistant_stream_start', id: 'after-ask' });
+  relay({ type: 'assistant_stream_delta', id: 'after-ask', delta: 'must remain silent' });
+  relay({ type: 'assistant_stream_end', id: 'after-ask' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+});
