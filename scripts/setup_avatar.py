@@ -122,6 +122,7 @@ def main():
                     raise RuntimeError(f"Model checksum mismatch: {voice}")
                 temporary.replace(target)
             finally:
+                output.close()  # Windows cannot unlink an open temporary file.
                 temporary.unlink(missing_ok=True)
     print(f"Ready: {root}. Start uagav and open Voice & avatar.")
 

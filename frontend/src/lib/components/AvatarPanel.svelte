@@ -90,7 +90,7 @@
     {/if}
     {#if canListen}<button onclick={listen}>{listening ? labels.end : labels.listen}</button>{/if}
   </div>
-  {#if !selected?.ready}<p>{labels.unavailable} <a href="https://github.com/awaku7/uag-web/blob/feature/preset-avatars/docs/AVATAR.ja.md" target="_blank" rel="noopener noreferrer">{labels.setup}</a></p>{/if}
+  {#if !selected?.ready}<p>{labels.unavailable} <a href="https://github.com/awaku7/uag-web/blob/HEAD/docs/AVATAR.ja.md" target="_blank" rel="noopener noreferrer">{labels.setup}</a></p>{/if}
   <div class="avatar-stage" class:active={enabled} bind:this={container}></div>
   {#if enabled}<p>{selected?.name} — {labels.ai}</p>{/if}
   {#if loading}<p role="status">{labels.loading}</p>{/if}

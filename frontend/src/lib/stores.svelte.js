@@ -3,7 +3,11 @@ export function subscribeAvatar(listener) {
   avatarListener = listener;
   return () => { if (avatarListener === listener) avatarListener = null; };
 }
-function stopAvatar() { avatarListener?.({ type: 'avatar_stop' }); }
+function notifyAvatar(data) {
+  try { avatarListener?.(data); }
+  catch (_) { console.warn('Avatar playback unavailable'); }
+}
+function stopAvatar() { notifyAvatar({ type: 'avatar_stop' }); }
 
 const _state = $state({
   ws: null,
@@ -206,7 +210,7 @@ export function connect() {
 }
 
 function handleWsMessage(data) {
-  avatarListener?.(data);
+  notifyAvatar(data);
   switch (data.type) {
     case 'init':
       _state.privateSession = !!data.private_session;
