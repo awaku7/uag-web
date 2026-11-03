@@ -1045,9 +1045,10 @@ def test_crash_recovery_is_atomic_with_reconnect_snapshot(monkeypatch):
         "assistant_stream_replace",
         "assistant_stream_end",
         "message",
+        "assistant_turn_cancelled",
     ]
     assert socket.events[2]["content"] == "partial reply"
-    assert socket.events[-1]["message"]["content"] == "[ERROR] worker exited"
+    assert socket.events[-2]["message"]["content"] == "[ERROR] worker exited"
     assert [message["content"] for message in room.messages] == [
         "question",
         "partial reply",
