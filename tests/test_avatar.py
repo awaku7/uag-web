@@ -116,8 +116,13 @@ def test_kai_voice_model_is_allowed_without_inventing_kai_avatar(monkeypatch, tm
         target = tmp_path / filename
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"fixture")
-    # The fourth TTS voice works with any supported avatar once its pack exists.
-    # It does not imply that a Kai lip-sync avatar has been published.
+    # A published avatar must stay available without its matching TTS voice.
+    for filename in ("sdk/dist/index.js", "avatars/avatars/hashiro/avatar.json"):
+        target = tmp_path / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"fixture")
+    # The fourth TTS voice works with the Hashiro pack, without hashiro.ztm.
+    # This does not imply that a Kai lip-sync avatar has been published.
     with TestClient(app) as client:
         config = client.get("/api/avatar/config").json()
         voices = {item["id"]: item["ready"] for item in config["voices"]}
@@ -128,7 +133,7 @@ def test_kai_voice_model_is_allowed_without_inventing_kai_avatar(monkeypatch, tm
             "kai": True,
             "kikka": False,
         }
-        assert avatars == {"marine": False, "hashiro": False, "kikka": False}
+        assert avatars == {"marine": False, "hashiro": True, "kikka": False}
         assert client.get("/api/avatar/files/models/kai.ztm").status_code == 200
         assert (
             client.get("/api/avatar/files/avatars/avatars/kai/avatar.json").status_code
