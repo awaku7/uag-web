@@ -22,8 +22,10 @@ try {
   await page.routeWebSocket('**/ws?*', ws => { socket=ws; ws.send(JSON.stringify({type:'init',messages:[],status:{busy:false}})); });
   await page.goto(process.argv[2] || 'http://127.0.0.1:8000/');
   await page.locator('.avatar-panel summary').click();
-  for (const voice of ['marine', 'hashiro', 'kikka']) {
-  await page.getByRole('combobox', {name:'声・アバター'}).selectOption(voice);
+  // Kai is TTS-only: pair it with the available Hashiro video avatar.
+  for (const [avatar, voice] of [['marine', 'marine'], ['hashiro', 'hashiro'], ['kikka', 'kikka'], ['hashiro', 'kai']]) {
+  await page.getByRole('combobox', {name:'アバター'}).selectOption(avatar);
+  await page.getByRole('combobox', {name:'音声'}).selectOption(voice);
   await page.evaluate(() => window.avatarAudio = {started:0,ended:0,samples:0});
   await page.getByRole('button', {name: 'アバターを開始', exact:true}).click();
   await page.waitForFunction(() => !document.querySelector('.avatar-panel')?.textContent.includes('読み込み中'), null, {timeout:120000});
@@ -33,10 +35,11 @@ try {
   socket.send(JSON.stringify({type:'assistant_stream_start', id:'avatar-test'}));
   socket.send(JSON.stringify({type:'assistant_stream_delta', id:'avatar-test', delta:'こんにちは。'}));
   socket.send(JSON.stringify({type:'assistant_stream_end', id:'avatar-test'}));
+  socket.send(JSON.stringify({type:'assistant_turn_complete'}));
   await page.waitForFunction(() => window.avatarAudio?.started > 0 || document.querySelector('[role=alert]'), null, {timeout:120000});
   if (await page.getByRole('alert').count()) throw new Error(await page.getByRole('alert').innerText());
   await page.waitForFunction(() => window.avatarAudio?.ended > 0, null, {timeout:120000});
-  console.log('SPEECH', voice, JSON.stringify(await page.evaluate(() => window.avatarAudio)));
+  console.log('SPEECH', avatar, voice, JSON.stringify(await page.evaluate(() => window.avatarAudio)));
   await page.getByRole('button', {name:'閉じる',exact:true}).click();
   }
   if (errors.length) throw new Error('Browser errors');
