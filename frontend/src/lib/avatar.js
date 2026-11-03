@@ -64,6 +64,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   let turnActive = false;
   let suppressStreamStart = false;
   let toolAnnounced = false;
+  const localUserMessageIds = new Set();
 
   function speakAndResume(value) {
     let playback;
@@ -73,7 +74,15 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   }
 
   return (event) => {
+    if (event.type === 'avatar_local_user_input') {
+      // Correlate the browser's own request with its later server echo.
+      if (event.client_message_id) localUserMessageIds.add(event.client_message_id);
+      return;
+    }
     if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'assistant_turn_cancelled', 'human_ask'].includes(event.type)) {
+      if (event.type === 'init' || (event.type === 'avatar_stop' && event.reason === 'reset')) {
+        localUserMessageIds.clear();
+      }
       id = null;
       text = '';
       streamAnswer = '';
@@ -92,6 +101,9 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       if (!keepCapture) cancelCapture();
       if (interrupted) resumeCapture();
     } else if (event.type === 'message' && !event.snapshot && event.message?.role === 'user') {
+      // A delayed echo of this tab's stopped request must not override Stop voice.
+      const messageId = event.message.client_message_id;
+      if (messageId && localUserMessageIds.delete(messageId)) return;
       // Other tabs/clients do not emit this tab's local avatar_stop(new_input).
       // The server's user message is the authoritative fresh-turn boundary.
       if (!turnActive) {
