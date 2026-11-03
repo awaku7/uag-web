@@ -15,6 +15,7 @@ test('avatar relay speaks only a completed live response, using replacement text
   relay({ type: 'assistant_stream_end', id: 'new' });
   relay({ type: 'assistant_stream_end', id: 'new' });
   relay({ type: 'message', message: { role: 'assistant', content: 'final' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['final']); assert.equal(stopped, 1);
 });
 
@@ -26,6 +27,7 @@ test('avatar relay speaks a completed assistant message when no stream was sent'
   relay({ type: 'avatar_stop', reason: 'new_input' });
   relay({ type: 'message', message: { role: 'user', content: 'hello' } });
   relay({ type: 'message', message: { role: 'assistant', content: 'fresh answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['fresh answer']);
 });
 
@@ -38,6 +40,7 @@ test('assistant message accompanying a stream is captured but spoken only once',
   relay({ type: 'message', message: { role: 'assistant', content: 'complete answer' } });
   relay({ type: 'assistant_stream_end', id: 'live' });
   relay({ type: 'message', message: { role: 'assistant', content: 'complete answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['complete answer']);
 });
 
@@ -46,6 +49,7 @@ test('manual stop does not arm fallback speech for an unstreamed response', () =
   const relay = createAvatarRelay((text) => spoken.push(text), () => {});
   relay({ type: 'avatar_stop', reason: 'stop' });
   relay({ type: 'message', message: { role: 'assistant', content: 'not requested' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, []);
 });
 
@@ -113,13 +117,14 @@ test('continuous listening pauses during assistant speech and resumes after play
   relay({ type: 'assistant_stream_delta', id: 'live', delta: 'answer' });
   relay({ type: 'assistant_stream_end', id: 'live' });
   relay({ type: 'message', message: { role: 'assistant', content: 'answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(events, ['pause', 'pause', 'speak']);
   finishPlayback();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(events.at(-1), 'resume');
 });
 
-test('stream speech falls back to accumulated text when no stored message follows', async () => {
+test('stream speech uses accumulated text only after turn completion', () => {
   const spoken = [];
   const relay = createAvatarRelay((text) => spoken.push(text), () => {});
   relay({ type: 'avatar_stop', reason: 'new_input' });
@@ -127,18 +132,18 @@ test('stream speech falls back to accumulated text when no stored message follow
   relay({ type: 'assistant_stream_delta', id: 'live', delta: 'complete response' });
   relay({ type: 'assistant_stream_end', id: 'live' });
   assert.deepEqual(spoken, []);
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['complete response']);
 });
 
-test('empty reasoning stream does not suppress the final assistant message', async () => {
+test('empty reasoning stream does not suppress the final assistant message', () => {
   const spoken = [];
   const relay = createAvatarRelay((text) => spoken.push(text), () => {});
   relay({ type: 'avatar_stop', reason: 'new_input' });
   relay({ type: 'assistant_stream_start', id: 'reasoning' });
   relay({ type: 'assistant_stream_end', id: 'reasoning' });
-  await new Promise((resolve) => setTimeout(resolve, 150));
   relay({ type: 'message', message: { role: 'assistant', content: 'final answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['final answer']);
 });
 
@@ -150,6 +155,7 @@ test('interrupt, human ask and connection reset discard pending speech', () => {
     relay({ type: 'assistant_stream_delta', id: 1, delta: 'private content' });
     relay({ type, id: 1 });
     relay({ type: 'assistant_stream_end', id: 1 });
+    relay({ type: 'assistant_turn_complete' });
     assert.deepEqual(spoken, []); assert.equal(stopped, 1);
   }
 });
@@ -220,6 +226,7 @@ test('a reconnect snapshot is never spoken, even when an active retained stream 
     relay({type:'assistant_stream_delta',id:'live',delta:'new response'});
     relay({type:'assistant_stream_end',id:'live'});
     relay({type:'message',message:{role:'assistant',content:'new response'}});
+    relay({type:'assistant_turn_complete'});
     assert.deepEqual(spoken,['new response']);
   }
 });
@@ -249,4 +256,53 @@ test('an agent interruption acknowledgement preserves new dictation, but context
   assert.equal(cancelled,0);
   for (const type of ['avatar_stop','init','human_ask']) relay({type});
   assert.equal(cancelled,3);
+});
+
+test('reasoning and final assistant messages in one turn speak only the final answer', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'reasoning' });
+  relay({ type: 'reasoning', content: 'private thinking' });
+  relay({ type: 'assistant_stream_end', id: 'reasoning' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'private thinking', reasoning_content: 'private thinking' } });
+  relay({ type: 'status', status: { busy: false } });
+  // Completion can be announced after IDLE; wait for the actual final message.
+  assert.deepEqual(spoken, []);
+  relay({ type: 'message', message: { role: 'assistant', content: '確定した回答です。' } });
+  assert.deepEqual(spoken, []);
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['確定した回答です。']);
+});
+
+test('tool-call messages and reasoning-only messages never replace final speech', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'searching', tool_calls: [{ id: 'tool1' }] } });
+  relay({ type: 'message', message: { role: 'assistant', content: '', reasoning_content: 'private analysis' } });
+  relay({ type: 'assistant_stream_start', id: 'final' });
+  relay({ type: 'assistant_stream_delta', id: 'final', delta: 'draft' });
+  relay({ type: 'assistant_stream_end', id: 'final' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'final stored response', reasoning_content: 'private analysis' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['final stored response']);
+});
+
+test('reasoning-only turns and cancelled turns do not speak', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'think' });
+  relay({ type: 'reasoning', content: 'hidden reasoning' });
+  relay({ type: 'assistant_stream_end', id: 'think' });
+  relay({ type: 'message', message: { role: 'assistant', content: '', reasoning_content: 'hidden reasoning' } });
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'cancel' });
+  relay({ type: 'assistant_stream_delta', id: 'cancel', delta: 'stale answer' });
+  relay({ type: 'avatar_stop', reason: 'interrupt' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
 });
