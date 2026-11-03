@@ -76,7 +76,7 @@ export function createSpeaker(runtime, onError = () => {}, latency = null) {
   let generation = 0;
   let queue = Promise.resolve();
   return {
-    speak(text) {
+    speak(text, { measureFinal = false } = {}) {
       const value = spokenText(text);
       if (!value) return Promise.resolve();
       const segments = splitSpeechSegments(value);
@@ -88,7 +88,7 @@ export function createSpeaker(runtime, onError = () => {}, latency = null) {
             const options = { emotion: emotionBlend[classifyEmotion(segment)] };
             for await (const part of runtime.tts.speakStream(segment, options)) {
               if (current !== generation) return;
-              latency?.firstAudioChunk();
+              if (measureFinal) latency?.firstAudioChunk();
               yield { pcm: part.pcm, sampleRate: part.sampleRate };
             }
           }
@@ -116,7 +116,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
 
   function speakAndResume(value) {
     let playback;
-    try { playback = speak(value); }
+    try { playback = speak(value, { measureFinal: true }); }
     catch (_) { resumeCapture(); return; }
     Promise.resolve(playback).catch(() => {}).finally(resumeCapture);
   }
