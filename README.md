@@ -1,39 +1,37 @@
 # UAG Web
 
 Svelte + FastAPI Web host for [Universal AI Gateway](https://github.com/awaku7/agentcli).
-Agent execution, providers, tools, memory, authorization, Sandbox and telemetry
-are supplied by the `uag` Python package in the same server process.
+The independent launch command is **`uagav` (UAG Avatar)**. Avatar rendering and
+ZEN-LipSync are not implemented in this change.
 
-This checkout is a migration candidate, not a published release. UAG 0.7.42
-is required for the shared trace ownership API and must be released first.
-The bundled UAG Web remains available.
-
-After release:
-
-```sh
-pip install uag-web
-uaga
-```
-
-The launchers remain separate:
+UAG's existing Web, UI assets and launchers remain unchanged:
 
 | Command | Application |
 | --- | --- |
-| `uaga` or `python -m uag_web` | Independent Web application |
-| `uagw` or `python -m uagent.web` | Existing bundled UAG Web |
-| `uaga2a` | A2A server (previous command: `uaga`) |
+| `uagav` / `python -m uag_web` | Independent Web application |
+| `uagw` / `python -m uagent.web` | Existing UAG Web |
+| `uaga` / `python -m uagent.a2a.server` | Existing A2A server |
 
 Both Web applications use port 8000. Stop one before starting the other;
-concurrent operation is not supported. Installing or uninstalling `uag-web`
-keeps the bundled Web and `uagw` intact. The core A2A command changes from
-`uaga` to `uaga2a` to free `uaga` for this application; update existing A2A scripts.
-`python -m uagent.a2a.server` remains available. This naming change is a draft
-proposal and has not been merged or published.
+concurrent operation is not supported. Installing or uninstalling this package
+must not overwrite or remove the existing `uagw` or `uaga` commands.
 
-Development (Python 3.11+, Node.js):
+This is an unpublished development candidate. It uses the unchanged UAG main
+commit `71c5cd7`, which contains the accepted host callback API from PR #330.
+No core source, command, version or package configuration is modified.
+The current PyPI release predates those callbacks, so the development dependency
+is pinned to that Git commit and is installed automatically (Git is required).
+When an older UAG of the same version is already installed, pip may keep it;
+use `--force-reinstall` for this development candidate as shown below.
+Before PyPI publication, replace this VCS dependency with a released UAG version
+that already contains #330. No core changes are proposed to enable publication.
+
+Development (Python 3.11+, Git, Node.js):
 
 ```sh
-python -m pip install -e '../agentcli[core,web,quality]' -e '.[test,quality]' build
+python -m venv .venv
+# Activate .venv using the command for your platform.
+python -m pip install --force-reinstall -e '.[test,quality]' build
 cd frontend
 npm ci
 npm run build
@@ -43,18 +41,20 @@ python -m pytest -q tests
 python -m black --check src tests
 python -m ruff check src tests
 python -m build
+uagav
 ```
 
-The frontend builds into `src/uag_web/static`; Node.js is unnecessary for an
-installed wheel. The server retains the existing UAG Web options, environment
-settings and routes. Use the Vite `/api`, `/auth`, `/ws`, `/upload`, `/local-file`
-and `/static` proxies for same-origin development. Configure the existing UAG
-Origin policy and OIDC redirect URI for that origin; do not disable validation.
+After release, installation will be `pip install uag-web` followed by `uagav`.
+The Python package/module names remain `uag-web` and `uag_web`.
 
-The existing UI still uses Tailwind CDN and Google Fonts. Offline UI support has
-not been verified. See the [migration plan](docs/UAG_WEB_MIGRATION.ja.md) for the
-protocol, security boundaries, pending acceptance checks and release order.
+The frontend builds into `src/uag_web/static`; Node.js is unnecessary for a wheel
+installation. The host retains the existing routes and configuration, uses UAG
+as a library in the same process, and adds no network service or port. Development
+uses the Vite `/api`, `/auth`, `/ws`, `/upload`, `/local-file` and `/static` proxies;
+keep the configured Origin policy and OIDC redirect URI aligned with that origin.
 
-ZEN-LipSync is not included. Any avatar integration will require a separate
-license review and PR. Windows, Linux and macOS remain supported targets;
-platform CI and real Sandbox/OIDC/provider acceptance are required before release.
+The existing UI still uses Tailwind CDN and Google Fonts. Offline UI, real OIDC,
+provider conversation, Web-mediated Sandbox, mobile/audio acceptance and inherited
+dependency audit findings remain release checks. See [coexistence](docs/COEXISTENCE.ja.md).
+Windows, Linux and macOS remain supported targets. ZEN-LipSync source/SDK/assets
+are not included; any future integration needs a separate license review and PR.

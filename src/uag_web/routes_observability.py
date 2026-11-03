@@ -24,7 +24,7 @@ from uagent.runtime.observability.trace_ownership_index import (
     TraceOwnershipSnapshot,
 )
 from uagent.runtime.observability.trace_ownership_runtime import (
-    get_trace_ownership_state,
+    _runtime_state as get_trace_ownership_state,
 )
 from uagent.runtime.observability.trace_query_projection import (
     get_trace_query_backend_adapter,

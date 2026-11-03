@@ -10,9 +10,10 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 classifiers = ["Programming Language :: Python :: 3", "Operating System :: OS Independent"]
-# UAG 0.7.42 exposes the shared trace ownership query used by this host.
+# Development pin: accepted main with PR #330; no core source changes.
+# Replace the VCS dependency with a released version before publishing to PyPI.
 dependencies = [
-  "uag[core,web]>=0.7.42",
+  "uag[core,web] @ git+https://github.com/awaku7/agentcli.git@71c5cd7757b3d7f35f292986b06a4596a08eb58f",
   "fastapi>=0.115",
   "uvicorn>=0.34",
   "httpx>=0.28.1",
@@ -22,7 +23,7 @@ dependencies = [
 ]
 
 [project.scripts]
-uaga = "uag_web.server:main"
+uagav = "uag_web.server:main"
 
 [project.optional-dependencies]
 quality = ["black==26.10.0", "ruff==0.16.10"]

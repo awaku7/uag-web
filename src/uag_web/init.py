@@ -151,7 +151,7 @@ def _initialize_web_sandbox(parser, *, sandbox_mode: str):
                 "install dependencies. Run `uagw --sandbox mxc` interactively "
                 "after reviewing the dependency prompt."
             )
-            parser.error(message.replace("uagw --sandbox mxc", "uaga --sandbox mxc"))
+            parser.error(message.replace("uagw --sandbox mxc", "uagav --sandbox mxc"))
         try:
             answer = input(
                 "Install the pinned MXC SDK (about 105 MB) in your user profile? [y/N] "
@@ -511,7 +511,7 @@ def main():
 
     from uagent.i18n import _
 
-    parser = argparse.ArgumentParser(prog="uaga", add_help=False)
+    parser = argparse.ArgumentParser(prog="uagav", add_help=False)
     add_decision_provider_argument(parser)
     parser.add_argument(
         "--use-tool",
