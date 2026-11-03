@@ -19,6 +19,13 @@ def test_config_does_not_expose_operator_paths(monkeypatch, tmp_path):
         "kikka",
     ]
     assert not any(p["ready"] for p in response.json()["presets"])
+    assert [v["id"] for v in response.json()["voices"]] == [
+        "marine",
+        "hashiro",
+        "kai",
+        "kikka",
+    ]
+    assert not any(v["ready"] for v in response.json()["voices"])
 
 
 @pytest.mark.parametrize(
@@ -95,3 +102,30 @@ def test_reconnect_marks_stream_snapshots_without_changing_live_events(monkeypat
     assert len(retained) == 5
     assert all(event["snapshot"] is True for event in retained)
     assert events[-1] == {"type": "assistant_stream_start", "id": "new"}
+
+
+def test_kai_voice_model_is_allowed_without_inventing_kai_avatar(monkeypatch, tmp_path):
+    monkeypatch.setenv("UAGAV_ZEN_DIR", str(tmp_path))
+    for filename in (
+        "tts/dist/index.js",
+        "tts/models/g2p/g2p.json",
+        "tts/models/g2p/g2p.bin",
+        "tts/cpu/tts-cpu.wasm",
+        "models/kai.ztm",
+    ):
+        target = tmp_path / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"fixture")
+    # The fourth TTS voice works with any supported avatar once its pack exists.
+    # It does not imply that a Kai lip-sync avatar has been published.
+    with TestClient(app) as client:
+        config = client.get("/api/avatar/config").json()
+        voices = {item["id"]: item["ready"] for item in config["voices"]}
+        avatars = {item["id"]: item["ready"] for item in config["presets"]}
+        assert voices == {"marine": False, "hashiro": False, "kai": True, "kikka": False}
+        assert avatars == {"marine": False, "hashiro": False, "kikka": False}
+        assert client.get("/api/avatar/files/models/kai.ztm").status_code == 200
+        assert (
+            client.get("/api/avatar/files/avatars/avatars/kai/avatar.json").status_code
+            == 404
+        )
