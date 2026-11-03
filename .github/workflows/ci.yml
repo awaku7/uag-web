@@ -17,8 +17,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: awaku7/agentcli
-          # Core 0.7.42 extraction candidate; use its release tag after publication.
-          ref: bf1cae8198a62d27dbf3971228afe28e72203989
+          # Public trace API candidate; bundled Web and existing commands remain.
+          ref: 4e1b2264b303456b28fc638078e5c146a7e546c4
           path: .uag-core
       - uses: actions/setup-python@v5
         with:

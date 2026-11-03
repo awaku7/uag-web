@@ -145,13 +145,13 @@ def _initialize_web_sandbox(parser, *, sandbox_mode: str):
             }
             or not getattr(sys.stdin, "isatty", lambda: False)()
         ):
-            parser.error(
-                _(
-                    "The MXC SDK is missing; non-interactive Web startup will not "
-                    "install dependencies. Run `uagw --sandbox mxc` interactively "
-                    "after reviewing the dependency prompt."
-                )
+            # Keep the shared gettext key while displaying this host's command.
+            message = _(
+                "The MXC SDK is missing; non-interactive Web startup will not "
+                "install dependencies. Run `uagw --sandbox mxc` interactively "
+                "after reviewing the dependency prompt."
             )
+            parser.error(message.replace("uagw --sandbox mxc", "uag-web --sandbox mxc"))
         try:
             answer = input(
                 "Install the pinned MXC SDK (about 105 MB) in your user profile? [y/N] "
@@ -511,7 +511,7 @@ def main():
 
     from uagent.i18n import _
 
-    parser = argparse.ArgumentParser(prog="uagw", add_help=False)
+    parser = argparse.ArgumentParser(prog="uag-web", add_help=False)
     add_decision_provider_argument(parser)
     parser.add_argument(
         "--use-tool",

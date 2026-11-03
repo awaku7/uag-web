@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 classifiers = ["Programming Language :: Python :: 3", "Operating System :: OS Independent"]
-# UAG 0.7.42 supplies the host API without a competing uagw entry point.
+# UAG 0.7.42 exposes the shared trace ownership query used by this host.
 dependencies = [
   "uag[core,web]>=0.7.42",
   "fastapi>=0.115",
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-uagw = "uag_web.server:main"
+uag-web = "uag_web.server:main"
 
 [project.optional-dependencies]
 quality = ["black==26.10.0", "ruff==0.16.10"]

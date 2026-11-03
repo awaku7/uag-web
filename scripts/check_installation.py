@@ -1,9 +1,10 @@
-"""Install the Web wheel over the last bundled UAG release in a clean venv."""
+"""Verify separate Web launchers through installation and uninstallation."""
 
-from pathlib import Path
+import hashlib
+import json
 import os
+from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import venv
 
@@ -15,9 +16,9 @@ with tempfile.TemporaryDirectory(prefix="uag-web-install-") as temporary:
     root = Path(temporary)
     environment = root / "venv"
     venv.EnvBuilder(with_pip=True).create(environment)
-    python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    binaries = environment / ("Scripts" if os.name == "nt" else "bin")
+    python = binaries / ("python.exe" if os.name == "nt" else "python")
     pip = [str(python), "-m", "pip", "--disable-pip-version-check"]
-    # Exercise the migration most users need: an installed core that owned uagw.
     subprocess.run([*pip, "install", "uag==0.7.41"], check=True)
     constraints = root / "constraints.txt"
     constraints.write_text(f"uag=={core_version}\n", encoding="utf-8")
@@ -34,12 +35,20 @@ with tempfile.TemporaryDirectory(prefix="uag-web-install-") as temporary:
         check=True,
     )
     subprocess.run([*pip, "check"], check=True)
+    launchers = {
+        name: hashlib.sha256(
+            (binaries / (name + (".exe" if os.name == "nt" else ""))).read_bytes()
+        ).hexdigest()
+        for name in ("uagw", "uaga")
+    }
     env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
     env.update(
         UAGENT_IDENTITY_MODE="local",
         UAGENT_STATE_DIR=str(root / "state"),
         UAGENT_AUTO_INSTALL="off",
         EXPECTED_CORE_VERSION=core_version,
+        CORE_LAUNCHERS_SHA=json.dumps(launchers),
     )
     subprocess.run(
         [
@@ -51,20 +60,76 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from uag_web.server import app
 
 assert metadata.version('uag') == os.environ['EXPECTED_CORE_VERSION']
-assert importlib.util.find_spec('uagent.web') is None
-assert importlib.util.find_spec('uagent.web_impl') is None
-assert not any(ep.name == 'uagw' for ep in metadata.distribution('uag').entry_points)
-assert any(ep.name == 'uagw' for ep in metadata.distribution('uag-web').entry_points)
-assert (Path(sys.executable).parent / ('uagw.exe' if os.name == 'nt' else 'uagw')).is_file()
+assert importlib.util.find_spec('uagent.web') is not None
+assert importlib.util.find_spec('uagent.web_impl') is not None
+core = {ep.name: ep.value for ep in metadata.distribution('uag').entry_points}
+assert core['uagw'] == 'uagent.web:main'
+assert core['uaga'] == 'uagent.a2a.server:main'
+scripts = [ep for ep in metadata.distribution('uag-web').entry_points if ep.group == 'console_scripts']
+assert [(ep.name, ep.value) for ep in scripts] == [('uag-web', 'uag_web.server:main')]
+assert (Path(sys.executable).parent / ('uag-web.exe' if os.name == 'nt' else 'uag-web')).is_file()
+with patch('uag_web.server.main') as independent:
+    scripts[0].load()()
+    independent.assert_called_once_with()
+assert 'uagent.web' not in sys.modules
 with TestClient(app) as client:
     assert client.get('/').status_code == 200
     assert client.get('/static/assets/index.js').status_code == 200
     assert client.get('/api/auth/status').json()['authenticated']
-os.write(1, b'Installed wheels: core upgrade, Web entry point, HTTP/static/auth passed\\n')
+os.write(1, b'Installed uag-web: separate launcher and HTTP/static/auth passed\\n')
+""",
+        ],
+        cwd=root,
+        env=env,
+        check=True,
+    )
+    subprocess.run(
+        [
+            str(python),
+            "-c",
+            """
+import importlib.metadata as metadata
+from unittest.mock import patch
+with patch('uagent.web.main') as bundled:
+    next(ep for ep in metadata.distribution('uag').entry_points if ep.name == 'uagw').load()()
+    bundled.assert_called_once_with()
+""",
+        ],
+        cwd=root,
+        env=env,
+        check=True,
+    )
+    subprocess.run([*pip, "uninstall", "--yes", "uag-web"], check=True)
+    subprocess.run(
+        [
+            str(python),
+            "-c",
+            """
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import sys
+from fastapi.testclient import TestClient
+from uagent.web import app
+
+assert importlib.util.find_spec('uag_web') is None
+binaries = Path(sys.executable).parent
+assert not (binaries / ('uag-web.exe' if os.name == 'nt' else 'uag-web')).exists()
+for name, expected in json.loads(os.environ['CORE_LAUNCHERS_SHA']).items():
+    executable = binaries / (name + ('.exe' if os.name == 'nt' else ''))
+    assert hashlib.sha256(executable.read_bytes()).hexdigest() == expected
+with TestClient(app) as client:
+    assert client.get('/').status_code == 200
+    assert client.get('/static/assets/index.js').status_code == 200
+    assert client.get('/api/auth/status').json()['authenticated']
+os.write(1, b'Uninstalled uag-web: bundled Web, uagw and uaga preserved\\n')
 """,
         ],
         cwd=root,
