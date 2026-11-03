@@ -87,7 +87,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       // Stop voice can preserve an already paused microphone. Only terminal
       // cleanup for that same turn may resume it; its answer stays silent.
       resumeStoppedTurn = event.type === 'avatar_stop'
-        && event.preserveCapture === true && turnActive;
+        && event.preserveCapture === true && (turnActive || resumeStoppedTurn);
       id = null;
       text = '';
       streamAnswer = '';
