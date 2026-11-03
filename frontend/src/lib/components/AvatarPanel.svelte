@@ -5,6 +5,8 @@
   import { loadAvatar, createSpeaker, createAvatarRelay, createContinuousDictation } from '../avatar.js';
   let { onSend, onInterrupt } = $props();
   let presets = $state([]);
+  let voices = $state([]);
+  let avatar = $state('marine');
   let voice = $state('marine');
   let enabled = $state(false);
   let loading = $state(false);
@@ -18,11 +20,12 @@
   let listening = $state(false);
   let canListen = $state(false);
   const words = {
-    ja: { title: '声・アバター', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: '標準アバターは未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '無音が約1.1秒続くと発話を送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
-    en: { title: 'Voice & avatar', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Standard avatars have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 1.1 seconds of silence. Audio may be sent to the browser provider.', retry: 'Resume playback' },
+    ja: { title: '声・アバター', avatar: 'アバター', voice: '音声', kaiNote: 'カイは音声のみ公開されています。カイ専用のリップシンク用アバターはありません。', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', stop: '音声停止', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: 'アバターまたは音声モデルが未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '無音が約1.1秒続くと発話を送信します。音声認識はブラウザ提供元へ送信される場合があります。', retry: '再生を再開' },
+    en: { title: 'Voice & avatar', avatar: 'Avatar', voice: 'Voice', kaiNote: 'Kai is a TTS voice only; no matching lip-sync avatar has been published.', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', stop: 'Stop voice', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Avatar or voice models have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 1.1 seconds of silence. Audio may be sent to the browser provider.', retry: 'Resume playback' },
   };
   let labels = $derived(words[getLang()] || words.en);
-  let selected = $derived(presets.find((item) => item.id === voice));
+  let selectedAvatar = $derived(presets.find((item) => item.id === avatar));
+  let selectedVoice = $derived(voices.find((item) => item.id === voice));
 
   function stop() { speaker?.stop(); }
   function stopVoice() { relay?.({ type: 'avatar_stop', preserveCapture: true }); }
@@ -39,7 +42,7 @@
     const target = document.createElement('div');
     container.replaceChildren(target);
     try {
-      const loaded = await loadAvatar(target, voice);
+      const loaded = await loadAvatar(target, avatar, voice);
       if (current !== attempt) { loaded.avatar.destroy(); loaded.tts.destroy(); return; }
       runtime = loaded;
       speaker = createSpeaker(loaded, () => { error = labels.failed; });
@@ -57,7 +60,10 @@
     fetch('/api/avatar/config').then(async (response) => {
       if (!response.ok) throw new Error();
       const config = await response.json();
-      if (mounted) presets = config.presets;
+      if (mounted) {
+        presets = config.presets || [];
+        voices = config.voices || [];
+      }
     }).catch(() => {});
     dictation = createContinuousDictation(
       () => {
@@ -84,21 +90,25 @@
 <details class="avatar-panel" ontoggle={(event) => { if (!event.currentTarget.open) close(); }}>
   <summary>{labels.title}</summary>
   <div class="controls">
-    <select aria-label={labels.title} bind:value={voice} onchange={close} disabled={loading}>
+    <select aria-label={labels.avatar} bind:value={avatar} onchange={() => { voice = avatar; close(); }} disabled={loading}>
       {#each presets as item}<option value={item.id}>{item.name}</option>{/each}
+    </select>
+    <select aria-label={labels.voice} bind:value={voice} onchange={close} disabled={loading}>
+      {#each voices as item}<option value={item.id}>{item.name}</option>{/each}
     </select>
     {#if enabled}
       <button onclick={close}>{labels.disable}</button>
       <button onclick={stopVoice} disabled={loading}>{labels.stop}</button>
       <button onclick={() => runtime?.avatar.resume()} disabled={loading}>{labels.retry}</button>
     {:else}
-      <button onclick={start} disabled={!selected?.ready}>{labels.enable}</button>
+      <button onclick={start} disabled={!selectedAvatar?.ready || !selectedVoice?.ready}>{labels.enable}</button>
     {/if}
     {#if canListen}<button onclick={listen}>{listening ? labels.end : labels.listen}</button>{/if}
   </div>
-  {#if !selected?.ready}<p>{labels.unavailable} <a href="https://github.com/awaku7/uag-web/blob/HEAD/docs/AVATAR.ja.md" target="_blank" rel="noopener noreferrer">{labels.setup}</a></p>{/if}
+  {#if !selectedAvatar?.ready || !selectedVoice?.ready}<p>{labels.unavailable} <a href="https://github.com/awaku7/uag-web/blob/HEAD/docs/AVATAR.ja.md" target="_blank" rel="noopener noreferrer">{labels.setup}</a></p>{/if}
+  {#if voice === 'kai'}<p class="note">{labels.kaiNote}</p>{/if}
   <div class="avatar-stage" class:active={enabled} bind:this={container}></div>
-  {#if enabled}<p>{selected?.name} — {labels.ai}</p>{/if}
+  {#if enabled}<p>{selectedAvatar?.name} / {selectedVoice?.name} — {labels.ai}</p>{/if}
   {#if loading}<p role="status">{labels.loading}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if canListen}<p class="note">{labels.mic}</p>{/if}
