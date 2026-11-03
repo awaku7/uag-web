@@ -416,3 +416,37 @@ test('manual stop and cancellation block same-turn streams until a fresh user me
   relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['fresh response']);
 });
+
+test('a delayed local server echo does not undo an explicit Stop voice', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_local_user_input', client_message_id: 'local-1' });
+  relay({ type: 'avatar_stop', reason: 'stop' });
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'local-1', content: 'queued input' } });
+  relay({ type: 'assistant_stream_start', id: 'local-response' });
+  relay({ type: 'assistant_stream_delta', id: 'local-response', delta: 'should remain silent' });
+  relay({ type: 'assistant_stream_end', id: 'local-response' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'should remain silent' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+
+  // A different tab's user message must still activate the next fresh turn.
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'other-2', content: 'new remote request' } });
+  relay({ type: 'message', message: { role: 'assistant', content: 'new remote response' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['new remote response']);
+});
+
+test('normal local server echoes do not reset a live avatar turn', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_local_user_input', client_message_id: 'local-2' });
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'local-2', content: 'hello' } });
+  relay({ type: 'assistant_stream_start', id: 'local-answer' });
+  relay({ type: 'assistant_stream_delta', id: 'local-answer', delta: 'hello back' });
+  relay({ type: 'assistant_stream_end', id: 'local-answer' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['hello back']);
+});
