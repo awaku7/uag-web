@@ -64,6 +64,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   let turnActive = false;
   let suppressStreamStart = false;
   let toolAnnounced = false;
+  let resumeStoppedTurn = false;
   const localUserMessageIds = new Set();
 
   function speakAndResume(value) {
@@ -83,6 +84,10 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       if (event.type === 'init' || (event.type === 'avatar_stop' && event.reason === 'reset')) {
         localUserMessageIds.clear();
       }
+      // Stop voice can preserve an already paused microphone. Only terminal
+      // cleanup for that same turn may resume it; its answer stays silent.
+      resumeStoppedTurn = event.type === 'avatar_stop'
+        && event.preserveCapture === true && turnActive;
       id = null;
       text = '';
       streamAnswer = '';
@@ -109,6 +114,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       if (!turnActive) {
         turnActive = true;
         suppressStreamStart = false;
+        resumeStoppedTurn = false;
         toolAnnounced = false;
         stop();
         pauseCapture();
@@ -118,6 +124,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       // Never re-arm a manually stopped or cancelled turn from a late stream.
       if (!turnActive && !suppressStreamStart) {
         turnActive = true;
+        resumeStoppedTurn = false;
         toolAnnounced = false;
         stop();
       }
@@ -125,6 +132,11 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       id = event.id;
       text = '';
       pauseCapture();
+    } else if (event.type === 'assistant_turn_complete' && resumeStoppedTurn) {
+      // A manually stopped answer is never spoken, but listening must resume.
+      resumeStoppedTurn = false;
+      resumeCapture();
+      return;
     } else if (!turnActive) {
       // Reconnect snapshots and messages from already-cancelled turns stay silent.
       return;
