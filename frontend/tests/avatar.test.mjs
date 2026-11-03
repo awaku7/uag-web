@@ -560,8 +560,6 @@ test('voice timing records only durations and ignores duplicate/cancelled audio'
     (name, start, end) => measurements.push({ name, duration: end - start }),
   );
   latency.recognized();
-  time = 800;
-  latency.sent();
   const played = [];
   const runtime = {
     tts: { async *speakStream() { yield { pcm: [1], sampleRate: 44100 }; }, destroy() {} },
@@ -576,6 +574,8 @@ test('voice timing records only durations and ignores duplicate/cancelled audio'
     () => speaker.stop(), () => {}, () => {}, () => {}, 'tool cue', latency,
   );
   relay({ type: 'avatar_stop', reason: 'new_input' });
+  time = 800;
+  latency.sent();
   relay({ type: 'message', message: { role: 'assistant', content: '回答です。' } });
   time = 1300;
   relay({ type: 'assistant_turn_complete' });
@@ -655,8 +655,8 @@ test('ongoing tool announcement chunks cannot consume the final-answer TTS timin
     () => speaker.stop(), () => {}, () => {}, () => {}, 'tool cue', latency,
   );
   latency.recognized();
-  latency.sent();
   relay({ type: 'avatar_stop', reason: 'new_input' });
+  latency.sent();
   relay({ type: 'tool_activity', name: 'search' });
   await toolActive;
   time = 50;
@@ -672,4 +672,51 @@ test('ongoing tool announcement chunks cannot consume the final-answer TTS timin
     { name: 'uagav:final-to-first-tts-chunk', ms: 50 },
   ]);
   speaker.destroy();
+});
+
+test('typed input superseding a microphone turn discards stale wait timing', () => {
+  let time = 0;
+  const measurements = [];
+  const latency = createAvatarLatency(
+    () => time,
+    (name) => measurements.push(name),
+  );
+  const relay = createAvatarRelay(
+    () => {}, () => {}, () => {}, () => {}, () => {}, 'tool cue', latency,
+  );
+  latency.recognized();
+  time = 800;
+  latency.sent();
+  // A subsequent typed question emits new_input but does not call latency.sent().
+  time = 900;
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  time = 1500;
+  relay({ type: 'message', message: { role: 'assistant', content: 'Answer to typed input.' } });
+  relay({ type: 'assistant_turn_complete' });
+  latency.firstAudioChunk();
+  assert.deepEqual(measurements, ['uagav:mic-result-to-send']);
+});
+
+test('new_input preserves only an unsent mic sample until WebSocket submission', () => {
+  let time = 100;
+  const measurements = [];
+  const latency = createAvatarLatency(
+    () => time,
+    (name, start, end) => measurements.push({ name, ms: end - start }),
+  );
+  const relay = createAvatarRelay(
+    () => {}, () => {}, () => {}, () => {}, () => {}, 'tool cue', latency,
+  );
+  latency.recognized();
+  time = 200;
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  time = 900;
+  latency.sent();
+  time = 1200;
+  relay({ type: 'message', message: { role: 'assistant', content: 'Voice response.' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(measurements, [
+    { name: 'uagav:mic-result-to-send', ms: 800 },
+    { name: 'uagav:send-to-final', ms: 300 },
+  ]);
 });
