@@ -42,6 +42,9 @@ export function createAvatarLatency(
       duration('uagav:final-to-first-tts-chunk', finalReply, now());
       finalReply = null;
     },
+    // A new input supersedes the old turn. Keep an unsent mic sample because
+    // sendUserInput emits avatar_stop(new_input) before dictation calls sent().
+    newInput() { submitted = null; finalReply = null; },
     reset() { lastResult = null; submitted = null; finalReply = null; },
   };
 }
@@ -128,8 +131,9 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       return;
     }
     if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'assistant_turn_cancelled', 'human_ask'].includes(event.type)) {
-      // Keep a pending microphone sample across the local send's new_input event.
-      if (event.type === 'init' || event.type === 'assistant_stream_interrupted'
+      // Keep the unsent mic sample, but discard old-turn timers on new input.
+      if (event.type === 'avatar_stop' && event.reason === 'new_input') latency?.newInput();
+      else if (event.type === 'init' || event.type === 'assistant_stream_interrupted'
         || event.type === 'assistant_turn_cancelled'
         || (event.type === 'avatar_stop' && event.reason !== 'new_input')) latency?.reset();
       if (event.type === 'init' || (event.type === 'avatar_stop' && event.reason === 'reset')) {
