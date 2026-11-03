@@ -25,6 +25,9 @@ try {
   // Kai is TTS-only: pair it with the available Hashiro video avatar.
   for (const [avatar, voice] of [['marine', 'marine'], ['hashiro', 'hashiro'], ['kikka', 'kikka'], ['hashiro', 'kai']]) {
   await page.getByRole('combobox', {name:'アバター'}).selectOption(avatar);
+  if (await page.getByRole('combobox', {name:'音声'}).inputValue() !== avatar) {
+    throw new Error('Avatar switch did not reset the matched voice');
+  }
   await page.getByRole('combobox', {name:'音声'}).selectOption(voice);
   await page.evaluate(() => window.avatarAudio = {started:0,ended:0,samples:0});
   await page.getByRole('button', {name: 'アバターを開始', exact:true}).click();
