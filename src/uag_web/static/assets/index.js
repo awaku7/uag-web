@@ -35,10 +35,15 @@ var Ti=Object.defineProperty;var na=e=>{throw TypeError(e)};var Mi=(e,t,r)=>t in
       text = '';
       streamAnswer = '';
       storedAnswer = '';
-      turnActive = event.type === 'avatar_stop' && event.reason === 'new_input';
-      // A stop/cancellation must not re-arm from another stream in the same turn.
-      // A fresh user message clears this guard; init allows new live streams.
-      suppressStreamStart = event.type !== 'init' && !turnActive;
+      // human_ask temporarily pauses the existing turn. Its answer may arrive
+      // without another stream start or server-side user message.
+      const continueAfterAsk = event.type === 'human_ask' && turnActive;
+      const wasSuppressed = suppressStreamStart;
+      turnActive = (event.type === 'avatar_stop' && event.reason === 'new_input')
+        || continueAfterAsk;
+      // Keep explicit manual-stop suppression across human_ask.
+      suppressStreamStart = event.type === 'human_ask'
+        ? wasSuppressed : event.type !== 'init' && !turnActive;
       toolAnnounced = false;
       stop();
       const interrupted = event.type === 'assistant_stream_interrupted'
