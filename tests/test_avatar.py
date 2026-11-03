@@ -122,7 +122,12 @@ def test_kai_voice_model_is_allowed_without_inventing_kai_avatar(monkeypatch, tm
         config = client.get("/api/avatar/config").json()
         voices = {item["id"]: item["ready"] for item in config["voices"]}
         avatars = {item["id"]: item["ready"] for item in config["presets"]}
-        assert voices == {"marine": False, "hashiro": False, "kai": True, "kikka": False}
+        assert voices == {
+            "marine": False,
+            "hashiro": False,
+            "kai": True,
+            "kikka": False,
+        }
         assert avatars == {"marine": False, "hashiro": False, "kikka": False}
         assert client.get("/api/avatar/files/models/kai.ztm").status_code == 200
         assert (
