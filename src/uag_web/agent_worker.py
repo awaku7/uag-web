@@ -1012,6 +1012,19 @@ def run_agent_worker(
             _stream_end()
         except Exception:
             pass
+        # A revoked memory projection must discard any response already
+        # buffered by the browser rather than being treated as completed.
+        try:
+            if (
+                getattr(core, "_memory_projection_invalidated", False)
+                or not _memory_projection_is_current()
+            ):
+                _web_stream_send({"type": "assistant_turn_cancelled"})
+            else:
+                # The final stored assistant message can follow stream_end.
+                _web_stream_send({"type": "assistant_turn_complete"})
+        except Exception:
+            pass
 
         try:
             with web_manager.active_room_lock:

@@ -320,6 +320,9 @@ export function sendUserInput(text, attachments) {
   } catch (_) {
     return false;
   }
+  // Only the tab that originated this request knows its correlation ID.
+  // Mark it before the server echo can arrive and re-arm stopped speech.
+  notifyAvatar({ type: 'avatar_local_user_input', client_message_id: clientMessageId });
   // Render immediately instead of waiting for worker/provider initialization.
   // The corresponding server event replaces this local echo.
   _state.messages = [

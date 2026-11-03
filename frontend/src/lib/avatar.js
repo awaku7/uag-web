@@ -59,34 +59,13 @@ export function createSpeaker(runtime, onError = () => {}) {
 export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCapture = () => {}, resumeCapture = () => {}, toolPhrase = 'ツールを利用します。少々お待ちください。') {
   let id = null;
   let text = '';
-  let streamSeen = false;
-  let awaitingFinalMessage = false;
+  let streamAnswer = '';
+  let storedAnswer = '';
   let turnActive = false;
+  let suppressStreamStart = false;
   let toolAnnounced = false;
-  let pendingStream = null;
-  let pendingStreamTimer = null;
-
-  function clearPendingStream() {
-    if (pendingStreamTimer !== null) clearTimeout(pendingStreamTimer);
-    pendingStreamTimer = null;
-    pendingStream = null;
-  }
-
-  function flushPendingStream() {
-    if (!pendingStream) return;
-    const completed = pendingStream.text;
-    clearPendingStream();
-    if (completed.trim()) {
-      awaitingFinalMessage = false;
-      speakAndResume(completed);
-    } else resumeCapture();
-  }
-
-  function deferStreamSpeech(value) {
-    clearPendingStream();
-    pendingStream = { text: value };
-    pendingStreamTimer = setTimeout(flushPendingStream, 120);
-  }
+  let resumeStoppedTurn = false;
+  const localUserMessageIds = new Set();
 
   function speakAndResume(value) {
     let playback;
@@ -96,31 +75,78 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   }
 
   return (event) => {
-    if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'human_ask'].includes(event.type)) {
-      clearPendingStream();
+    if (event.type === 'avatar_local_user_input') {
+      // Correlate the browser's own request with its later server echo.
+      if (event.client_message_id) localUserMessageIds.add(event.client_message_id);
+      return;
+    }
+    if (['init', 'avatar_stop', 'assistant_stream_interrupted', 'assistant_turn_cancelled', 'human_ask'].includes(event.type)) {
+      if (event.type === 'init' || (event.type === 'avatar_stop' && event.reason === 'reset')) {
+        localUserMessageIds.clear();
+      }
+      // Stop voice can preserve an already paused microphone. Only terminal
+      // cleanup for that same turn may resume it; its answer stays silent.
+      resumeStoppedTurn = event.type === 'avatar_stop'
+        && event.preserveCapture === true && (turnActive || resumeStoppedTurn);
       id = null;
       text = '';
-      streamSeen = event.type === 'init' || event.type === 'assistant_stream_interrupted';
-      awaitingFinalMessage = event.type === 'avatar_stop' && event.reason === 'new_input';
-      turnActive = awaitingFinalMessage;
+      streamAnswer = '';
+      storedAnswer = '';
+      // human_ask temporarily pauses the existing turn. Its answer may arrive
+      // without another stream start or server-side user message.
+      const continueAfterAsk = event.type === 'human_ask' && turnActive;
+      const wasSuppressed = suppressStreamStart;
+      turnActive = (event.type === 'avatar_stop' && event.reason === 'new_input')
+        || continueAfterAsk;
+      // Keep explicit manual-stop suppression across human_ask.
+      suppressStreamStart = event.type === 'human_ask'
+        ? wasSuppressed : event.type !== 'init' && !turnActive;
       toolAnnounced = false;
       stop();
-      const keepCapture = event.type === 'assistant_stream_interrupted'
-        || event.preserveCapture === true
-        || awaitingFinalMessage;
-      if (awaitingFinalMessage) pauseCapture();
+      const interrupted = event.type === 'assistant_stream_interrupted'
+        || event.type === 'assistant_turn_cancelled';
+      const keepCapture = interrupted || event.preserveCapture === true || turnActive;
+      if (turnActive) pauseCapture();
       // An acknowledgement of our barge-in must not cancel the new dictation.
       if (!keepCapture) cancelCapture();
-      if (event.type === 'assistant_stream_interrupted') resumeCapture();
-    } else if (event.type === 'assistant_stream_start') {
-      flushPendingStream();
-      streamSeen = true;
-      id = event.snapshot ? null : event.id;
+      if (interrupted) resumeCapture();
+    } else if (event.type === 'message' && !event.snapshot && event.message?.role === 'user') {
+      // A delayed echo of this tab's stopped request must not override Stop voice.
+      const messageId = event.message.client_message_id;
+      if (messageId && localUserMessageIds.delete(messageId)) return;
+      // Other tabs/clients do not emit this tab's local avatar_stop(new_input).
+      // The server's user message is the authoritative fresh-turn boundary.
+      if (!turnActive) {
+        turnActive = true;
+        suppressStreamStart = false;
+        resumeStoppedTurn = false;
+        toolAnnounced = false;
+        stop();
+        pauseCapture();
+      }
+    } else if (event.type === 'assistant_stream_start' && !event.snapshot) {
+      // Some providers start streaming before a stored user message arrives.
+      // Never re-arm a manually stopped or cancelled turn from a late stream.
+      if (!turnActive && !suppressStreamStart) {
+        turnActive = true;
+        resumeStoppedTurn = false;
+        toolAnnounced = false;
+        stop();
+      }
+      if (!turnActive) return;
+      id = event.id;
       text = '';
-      if (!event.snapshot) pauseCapture();
+      pauseCapture();
+    } else if (event.type === 'assistant_turn_complete' && resumeStoppedTurn) {
+      // A manually stopped answer is never spoken, but listening must resume.
+      resumeStoppedTurn = false;
+      resumeCapture();
+      return;
+    } else if (!turnActive) {
+      // Reconnect snapshots and messages from already-cancelled turns stay silent.
+      return;
     } else if (event.type === 'tool_activity') {
-      flushPendingStream();
-      if (turnActive && event.name && !toolAnnounced) {
+      if (event.name && !toolAnnounced) {
         toolAnnounced = true;
         pauseCapture();
         const phrase = typeof toolPhrase === 'function' ? toolPhrase() : toolPhrase;
@@ -129,27 +155,28 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
     } else if (event.type === 'message') {
       const message = event.message;
       if (event.snapshot || message?.role !== 'assistant') return;
+      if (message.type === 'reasoning' || message.channel === 'analysis'
+        || (Array.isArray(message.tool_calls) && message.tool_calls.length)) return;
       const content = typeof message.content === 'string' ? message.content : '';
-      if (id !== null) {
-        // Some providers deliver the complete assistant message but no deltas.
-        // Keep it for the stream-end event rather than speaking twice.
-        if (content.trim()) text = content;
-      } else if (pendingStream && content.trim()) {
-        // Prefer the canonical stored answer when it arrives just after stream_end.
-        pendingStream.text = content;
-        flushPendingStream();
-      } else if (awaitingFinalMessage && !streamSeen && content.trim()) {
-        // Non-streaming provider fallback: speak only a fresh final message.
-        awaitingFinalMessage = false;
-        pauseCapture();
-        speakAndResume(content);
-      }
+      const reasoning = typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+      // Ignore reasoning-only entries. The final stored assistant answer wins.
+      if (content.trim() && content.trim() !== reasoning.trim()) storedAnswer = content;
+    } else if (event.type === 'assistant_turn_complete') {
+      // The server sends this after all assistant messages and the stream end.
+      // Do not speak intermediate reasoning/tool messages or a premature stream.
+      const answer = storedAnswer || streamAnswer || text;
+      turnActive = false;
+      id = null;
+      text = '';
+      streamAnswer = '';
+      storedAnswer = '';
+      if (answer.trim()) speakAndResume(answer);
+      else resumeCapture();
     } else if (id !== null && event.id === id) {
       if (event.type === 'assistant_stream_delta') text += event.delta || '';
       if (event.type === 'assistant_stream_replace') text = event.content || '';
       if (event.type === 'assistant_stream_end') {
-        if (!text.trim()) streamSeen = false;
-        deferStreamSpeech(text);
+        if (text.trim()) streamAnswer = text;
         id = null;
         text = '';
       }

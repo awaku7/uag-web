@@ -8,6 +8,7 @@ test('avatar relay speaks only a completed live response, using replacement text
   const relay = createAvatarRelay((text) => spoken.push(text), () => stopped++);
   relay({ type: 'init', messages: [{ role: 'assistant', content: 'history' }] });
   relay({ type: 'assistant_stream_end', id: 'old' });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
   relay({ type: 'assistant_stream_start', id: 'new' });
   relay({ type: 'assistant_stream_delta', id: 'old', delta: 'wrong room' });
   relay({ type: 'assistant_stream_delta', id: 'new', delta: 'draft' });
@@ -15,7 +16,8 @@ test('avatar relay speaks only a completed live response, using replacement text
   relay({ type: 'assistant_stream_end', id: 'new' });
   relay({ type: 'assistant_stream_end', id: 'new' });
   relay({ type: 'message', message: { role: 'assistant', content: 'final' } });
-  assert.deepEqual(spoken, ['final']); assert.equal(stopped, 1);
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['final']); assert.equal(stopped, 2);
 });
 
 test('avatar relay speaks a completed assistant message when no stream was sent', () => {
@@ -26,6 +28,7 @@ test('avatar relay speaks a completed assistant message when no stream was sent'
   relay({ type: 'avatar_stop', reason: 'new_input' });
   relay({ type: 'message', message: { role: 'user', content: 'hello' } });
   relay({ type: 'message', message: { role: 'assistant', content: 'fresh answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['fresh answer']);
 });
 
@@ -38,6 +41,7 @@ test('assistant message accompanying a stream is captured but spoken only once',
   relay({ type: 'message', message: { role: 'assistant', content: 'complete answer' } });
   relay({ type: 'assistant_stream_end', id: 'live' });
   relay({ type: 'message', message: { role: 'assistant', content: 'complete answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['complete answer']);
 });
 
@@ -46,6 +50,7 @@ test('manual stop does not arm fallback speech for an unstreamed response', () =
   const relay = createAvatarRelay((text) => spoken.push(text), () => {});
   relay({ type: 'avatar_stop', reason: 'stop' });
   relay({ type: 'message', message: { role: 'assistant', content: 'not requested' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, []);
 });
 
@@ -113,13 +118,14 @@ test('continuous listening pauses during assistant speech and resumes after play
   relay({ type: 'assistant_stream_delta', id: 'live', delta: 'answer' });
   relay({ type: 'assistant_stream_end', id: 'live' });
   relay({ type: 'message', message: { role: 'assistant', content: 'answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(events, ['pause', 'pause', 'speak']);
   finishPlayback();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(events.at(-1), 'resume');
 });
 
-test('stream speech falls back to accumulated text when no stored message follows', async () => {
+test('stream speech uses accumulated text only after turn completion', () => {
   const spoken = [];
   const relay = createAvatarRelay((text) => spoken.push(text), () => {});
   relay({ type: 'avatar_stop', reason: 'new_input' });
@@ -127,18 +133,18 @@ test('stream speech falls back to accumulated text when no stored message follow
   relay({ type: 'assistant_stream_delta', id: 'live', delta: 'complete response' });
   relay({ type: 'assistant_stream_end', id: 'live' });
   assert.deepEqual(spoken, []);
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['complete response']);
 });
 
-test('empty reasoning stream does not suppress the final assistant message', async () => {
+test('empty reasoning stream does not suppress the final assistant message', () => {
   const spoken = [];
   const relay = createAvatarRelay((text) => spoken.push(text), () => {});
   relay({ type: 'avatar_stop', reason: 'new_input' });
   relay({ type: 'assistant_stream_start', id: 'reasoning' });
   relay({ type: 'assistant_stream_end', id: 'reasoning' });
-  await new Promise((resolve) => setTimeout(resolve, 150));
   relay({ type: 'message', message: { role: 'assistant', content: 'final answer' } });
+  relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, ['final answer']);
 });
 
@@ -150,7 +156,9 @@ test('interrupt, human ask and connection reset discard pending speech', () => {
     relay({ type: 'assistant_stream_delta', id: 1, delta: 'private content' });
     relay({ type, id: 1 });
     relay({ type: 'assistant_stream_end', id: 1 });
-    assert.deepEqual(spoken, []); assert.equal(stopped, 1);
+    relay({ type: 'assistant_turn_complete' });
+    // A fresh remote stream and the subsequent interruption each stop playback.
+    assert.deepEqual(spoken, []); assert.equal(stopped, 2);
   }
 });
 
@@ -216,10 +224,12 @@ test('a reconnect snapshot is never spoken, even when an active retained stream 
     if (!ended) relay({type:'assistant_stream_delta',id:'retained',delta:' continued'});
     relay({type:'assistant_stream_end',id:'retained',snapshot:ended});
     assert.deepEqual(spoken,[]);
+    relay({type:'avatar_stop',reason:'new_input'});
     relay({type:'assistant_stream_start',id:'live'});
     relay({type:'assistant_stream_delta',id:'live',delta:'new response'});
     relay({type:'assistant_stream_end',id:'live'});
     relay({type:'message',message:{role:'assistant',content:'new response'}});
+    relay({type:'assistant_turn_complete'});
     assert.deepEqual(spoken,['new response']);
   }
 });
@@ -249,4 +259,253 @@ test('an agent interruption acknowledgement preserves new dictation, but context
   assert.equal(cancelled,0);
   for (const type of ['avatar_stop','init','human_ask']) relay({type});
   assert.equal(cancelled,3);
+});
+
+test('reasoning and final assistant messages in one turn speak only the final answer', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'reasoning' });
+  relay({ type: 'reasoning', content: 'private thinking' });
+  relay({ type: 'assistant_stream_end', id: 'reasoning' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'private thinking', reasoning_content: 'private thinking' } });
+  relay({ type: 'status', status: { busy: false } });
+  // Completion can be announced after IDLE; wait for the actual final message.
+  assert.deepEqual(spoken, []);
+  relay({ type: 'message', message: { role: 'assistant', content: '確定した回答です。' } });
+  assert.deepEqual(spoken, []);
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['確定した回答です。']);
+});
+
+test('tool-call messages and reasoning-only messages never replace final speech', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'searching', tool_calls: [{ id: 'tool1' }] } });
+  relay({ type: 'message', message: { role: 'assistant', content: '', reasoning_content: 'private analysis' } });
+  relay({ type: 'assistant_stream_start', id: 'final' });
+  relay({ type: 'assistant_stream_delta', id: 'final', delta: 'draft' });
+  relay({ type: 'assistant_stream_end', id: 'final' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'final stored response', reasoning_content: 'private analysis' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['final stored response']);
+});
+
+test('reasoning-only turns and cancelled turns do not speak', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'think' });
+  relay({ type: 'reasoning', content: 'hidden reasoning' });
+  relay({ type: 'assistant_stream_end', id: 'think' });
+  relay({ type: 'message', message: { role: 'assistant', content: '', reasoning_content: 'hidden reasoning' } });
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'cancel' });
+  relay({ type: 'assistant_stream_delta', id: 'cancel', delta: 'stale answer' });
+  relay({ type: 'avatar_stop', reason: 'interrupt' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+});
+
+test('memory projection revocation discards buffered speech and resumes listening', async () => {
+  const spoken = [];
+  const listening = [];
+  const relay = createAvatarRelay(
+    (text) => spoken.push(text),
+    () => {},
+    () => listening.push('cancel'),
+    () => listening.push('pause'),
+    () => listening.push('resume'),
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'revoked' });
+  relay({ type: 'assistant_stream_delta', id: 'revoked', delta: 'revoked answer' });
+  relay({ type: 'assistant_turn_cancelled' });
+  relay({ type: 'assistant_stream_end', id: 'revoked' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+  assert.equal(listening.at(-1), 'resume');
+
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'safe new answer' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['safe new answer']);
+});
+
+test('worker crash recovery clears buffered reply instead of speaking error text', () => {
+  const spoken = [];
+  const states = [];
+  const relay = createAvatarRelay(
+    (text) => spoken.push(text),
+    () => {},
+    () => states.push('cancel'),
+    () => states.push('pause'),
+    () => states.push('resume'),
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'crashed' });
+  relay({ type: 'assistant_stream_delta', id: 'crashed', delta: 'unfinished' });
+  relay({ type: 'assistant_stream_end', id: 'crashed' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'unfinished' } });
+  relay({ type: 'message', message: { role: 'assistant', content: '[FATAL] Worker crashed.' } });
+  relay({ type: 'assistant_turn_cancelled' });
+  assert.deepEqual(spoken, []);
+  assert.equal(states.at(-1), 'resume');
+});
+
+test('another room client can trigger a final avatar answer after reasoning', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'init', messages: [{ role: 'assistant', content: 'historical answer' }] });
+  relay({ type: 'message', message: { role: 'user', content: 'sent from another tab' } });
+  relay({ type: 'assistant_stream_start', id: 'remote' });
+  relay({ type: 'reasoning', content: 'reasoning only' });
+  relay({ type: 'assistant_stream_end', id: 'remote' });
+  relay({ type: 'message', message: { role: 'assistant', content: '', reasoning_content: 'reasoning only' } });
+  relay({ type: 'message', message: { role: 'assistant', content: 'reply to another tab' } });
+  assert.deepEqual(spoken, []);
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['reply to another tab']);
+});
+
+test('a new live stream activates a remote turn without a user event', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'init' });
+  relay({ type: 'assistant_stream_start', id: 'snapshot', snapshot: true });
+  relay({ type: 'assistant_stream_replace', id: 'snapshot', content: 'old answer', snapshot: true });
+  relay({ type: 'assistant_stream_end', id: 'snapshot', snapshot: true });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+
+  relay({ type: 'assistant_stream_start', id: 'new-live-stream' });
+  relay({ type: 'assistant_stream_delta', id: 'new-live-stream', delta: 'fresh answer' });
+  relay({ type: 'assistant_stream_end', id: 'new-live-stream' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['fresh answer']);
+});
+
+test('manual stop and cancellation block same-turn streams until a fresh user message', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'first' });
+  relay({ type: 'avatar_stop', reason: 'stop' });
+  relay({ type: 'assistant_stream_start', id: 'late' });
+  relay({ type: 'assistant_stream_delta', id: 'late', delta: 'must not speak' });
+  relay({ type: 'assistant_stream_end', id: 'late' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+
+  relay({ type: 'message', message: { role: 'user', content: 'new user turn' } });
+  relay({ type: 'assistant_stream_start', id: 'new' });
+  relay({ type: 'assistant_stream_delta', id: 'new', delta: 'fresh response' });
+  relay({ type: 'assistant_stream_end', id: 'new' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['fresh response']);
+
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'assistant_stream_start', id: 'cancelled' });
+  relay({ type: 'assistant_turn_cancelled' });
+  relay({ type: 'assistant_stream_start', id: 'late-cancelled' });
+  relay({ type: 'assistant_stream_delta', id: 'late-cancelled', delta: 'revoked' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['fresh response']);
+});
+
+test('a delayed local server echo does not undo an explicit Stop voice', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_local_user_input', client_message_id: 'local-1' });
+  relay({ type: 'avatar_stop', reason: 'stop' });
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'local-1', content: 'queued input' } });
+  relay({ type: 'assistant_stream_start', id: 'local-response' });
+  relay({ type: 'assistant_stream_delta', id: 'local-response', delta: 'should remain silent' });
+  relay({ type: 'assistant_stream_end', id: 'local-response' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'should remain silent' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+
+  // A different tab's user message must still activate the next fresh turn.
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'other-2', content: 'new remote request' } });
+  relay({ type: 'message', message: { role: 'assistant', content: 'new remote response' } });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['new remote response']);
+});
+
+test('normal local server echoes do not reset a live avatar turn', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_local_user_input', client_message_id: 'local-2' });
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'local-2', content: 'hello' } });
+  relay({ type: 'assistant_stream_start', id: 'local-answer' });
+  relay({ type: 'assistant_stream_delta', id: 'local-answer', delta: 'hello back' });
+  relay({ type: 'assistant_stream_end', id: 'local-answer' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, ['hello back']);
+});
+
+test('Stop voice resumes paused continuous dictation at terminal completion', () => {
+  const spoken = [];
+  const states = [];
+  const relay = createAvatarRelay(
+    (text) => spoken.push(text),
+    () => {},
+    () => states.push('cancel'),
+    () => states.push('pause'),
+    () => states.push('resume'),
+  );
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_local_user_input', client_message_id: 'dictation-1' });
+  relay({ type: 'avatar_stop', preserveCapture: true });
+  // Repeated stops must not lose the pending microphone cleanup.
+  relay({ type: 'avatar_stop', preserveCapture: true });
+  relay({ type: 'message', message: { role: 'user', client_message_id: 'dictation-1', content: 'transcript' } });
+  relay({ type: 'assistant_stream_start', id: 'stopped' });
+  relay({ type: 'assistant_stream_delta', id: 'stopped', delta: 'do not speak' });
+  relay({ type: 'assistant_stream_end', id: 'stopped' });
+  relay({ type: 'message', message: { role: 'assistant', content: 'do not speak' } });
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
+  assert.deepEqual(states, ['pause', 'resume']);
+});
+
+test('human ask preserves the active turn until its final answer', () => {
+  for (const streamed of [true, false]) {
+    const spoken = [];
+    const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+    relay({ type: 'avatar_stop', reason: 'new_input' });
+    relay({ type: 'assistant_stream_start', id: 'pre-ask' });
+    relay({ type: 'assistant_stream_delta', id: 'pre-ask', delta: 'before human ask' });
+    relay({ type: 'human_ask', message: 'Please confirm' });
+    if (streamed) {
+      relay({ type: 'assistant_stream_start', id: 'after-ask' });
+      relay({ type: 'assistant_stream_delta', id: 'after-ask', delta: 'confirmed answer' });
+      relay({ type: 'assistant_stream_end', id: 'after-ask' });
+    } else {
+      relay({ type: 'message', message: { role: 'assistant', content: 'confirmed answer' } });
+    }
+    relay({ type: 'assistant_turn_complete' });
+    assert.deepEqual(spoken, ['confirmed answer']);
+  }
+});
+
+test('human ask cannot override an earlier manual voice stop', () => {
+  const spoken = [];
+  const relay = createAvatarRelay((text) => spoken.push(text), () => {});
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'avatar_stop', reason: 'stop' });
+  relay({ type: 'human_ask', message: 'Please confirm' });
+  relay({ type: 'assistant_stream_start', id: 'after-ask' });
+  relay({ type: 'assistant_stream_delta', id: 'after-ask', delta: 'must remain silent' });
+  relay({ type: 'assistant_stream_end', id: 'after-ask' });
+  relay({ type: 'assistant_turn_complete' });
+  assert.deepEqual(spoken, []);
 });
