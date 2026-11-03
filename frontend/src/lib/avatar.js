@@ -2,8 +2,9 @@
 import { classifyEmotion, emotionBlend, splitSpeechSegments } from './emotion.js';
 
 export const assetBase = '/api/avatar/files';
-export async function loadAvatar(container, voice) {
-  if (!['marine', 'hashiro', 'kikka'].includes(voice)) throw new Error('Unknown avatar');
+export async function loadAvatar(container, avatarId, voiceId = avatarId) {
+  if (!['marine', 'hashiro', 'kikka'].includes(avatarId)) throw new Error('Unknown avatar');
+  if (!['marine', 'hashiro', 'kai', 'kikka'].includes(voiceId)) throw new Error('Unknown voice');
   if (!globalThis.isSecureContext || !navigator.gpu) throw new Error('WebGPU requires a supported browser and HTTPS or localhost.');
   const sdkUrl = `${assetBase}/sdk/dist/index.js`;
   const ttsUrl = `${assetBase}/tts/dist/index.js`;
@@ -13,8 +14,8 @@ export async function loadAvatar(container, voice) {
   let avatar;
   let tts;
   try {
-    avatar = await create({ container, avatar: `${assetBase}/avatars/avatars/${voice}/avatar.json` });
-    tts = await ZenTts.load({ model: `${assetBase}/models/${voice}.ztm`, modelsUrl: `${assetBase}/tts/models`, cpuWasmUrl: `${assetBase}/tts/cpu/tts-cpu.wasm`, backend: 'cpu' });
+    avatar = await create({ container, avatar: `${assetBase}/avatars/avatars/${avatarId}/avatar.json` });
+    tts = await ZenTts.load({ model: `${assetBase}/models/${voiceId}.ztm`, modelsUrl: `${assetBase}/tts/models`, cpuWasmUrl: `${assetBase}/tts/cpu/tts-cpu.wasm`, backend: 'cpu' });
     return { avatar, tts };
   } catch (error) {
     avatar?.destroy(); tts?.destroy(); throw error;

@@ -15,6 +15,14 @@ PRESETS = (
     ("kikka", "全力 キッカ"),
 )
 
+# ZEN-TTS offers Kai's voice, but ZEN-LipSync does not publish a Kai avatar.
+VOICES = (
+    ("marine", "全力 マリン"),
+    ("hashiro", "全力 ハシロウ"),
+    ("kai", "全力 カイ"),
+    ("kikka", "全力 キッカ"),
+)
+
 
 def _authorize(request: Request):
     try:
@@ -35,12 +43,23 @@ def _ready(root, voice):
             (root / path).is_file()
             for path in (
                 "sdk/dist/index.js",
+                f"avatars/avatars/{voice}/avatar.json",
+            )
+        )
+    )
+
+
+def _voice_ready(root, voice):
+    return bool(
+        root
+        and all(
+            (root / path).is_file()
+            for path in (
                 "tts/dist/index.js",
                 "tts/models/g2p/g2p.json",
                 "tts/models/g2p/g2p.bin",
                 "tts/cpu/tts-cpu.wasm",
                 f"models/{voice}.ztm",
-                f"avatars/avatars/{voice}/avatar.json",
             )
         )
     )
@@ -54,7 +73,11 @@ async def avatar_config(request: Request):
         "presets": [
             {"id": voice, "name": name, "ready": _ready(root, voice)}
             for voice, name in PRESETS
-        ]
+        ],
+        "voices": [
+            {"id": voice, "name": name, "ready": _voice_ready(root, voice)}
+            for voice, name in VOICES
+        ],
     }
 
 
@@ -71,7 +94,7 @@ async def avatar_file(request: Request, area: str, asset: str):
         and parts
         and parts[0] in {"dist", "cpu", "models"}
         or area == "models"
-        and asset in {f"{voice}.ztm" for voice, _ in PRESETS}
+        and asset in {f"{voice}.ztm" for voice, _ in VOICES}
         or area == "avatars"
         and len(parts) > 2
         and parts[0] == "avatars"

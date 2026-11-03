@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeaker, createAvatarRelay, createContinuousDictation, spokenText } from '../src/lib/avatar.js';
+import { createSpeaker, createAvatarRelay, createContinuousDictation, spokenText, loadAvatar } from '../src/lib/avatar.js';
 import { classifyEmotion } from '../src/lib/emotion.js';
 
 test('avatar relay speaks only a completed live response, using replacement text', () => {
@@ -508,4 +508,11 @@ test('human ask cannot override an earlier manual voice stop', () => {
   relay({ type: 'assistant_stream_end', id: 'after-ask' });
   relay({ type: 'assistant_turn_complete' });
   assert.deepEqual(spoken, []);
+});
+
+test('Kai is a supported TTS voice but not a published lip-sync avatar', async () => {
+  await assert.rejects(loadAvatar(null, 'kai', 'kai'), /Unknown avatar/);
+  await assert.rejects(loadAvatar(null, 'hashiro', 'unpublished'), /Unknown voice/);
+  // The supported combination passes ID validation; Node has no WebGPU.
+  await assert.rejects(loadAvatar(null, 'hashiro', 'kai'), /WebGPU requires/);
 });
