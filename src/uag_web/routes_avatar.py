@@ -43,11 +43,6 @@ def _ready(root, voice):
             (root / path).is_file()
             for path in (
                 "sdk/dist/index.js",
-                "tts/dist/index.js",
-                "tts/models/g2p/g2p.json",
-                "tts/models/g2p/g2p.bin",
-                "tts/cpu/tts-cpu.wasm",
-                f"models/{voice}.ztm",
                 f"avatars/avatars/{voice}/avatar.json",
             )
         )
