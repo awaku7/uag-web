@@ -1012,6 +1012,12 @@ def run_agent_worker(
             _stream_end()
         except Exception:
             pass
+        # The stream can end before the final stored assistant message arrives.
+        # Signal completion only after all messages have been enqueued.
+        try:
+            _web_stream_send({"type": "assistant_turn_complete"})
+        except Exception:
+            pass
 
         try:
             with web_manager.active_room_lock:
