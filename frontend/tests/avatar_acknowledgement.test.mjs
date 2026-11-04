@@ -105,6 +105,55 @@ test('code-only final answer cancels pending acknowledgement before microphone r
   speaker.destroy();
 });
 
+test('reasoning-only completion cancels queued acknowledgement before dictation resumes', async () => {
+  const runtime = makeRuntime();
+  const speaker = createSpeaker(runtime);
+  await speaker.prepareAcknowledgement('はい。');
+  const { createAvatarRelay } = await import('../src/lib/avatar.js');
+  let resumes = 0;
+  const relay = createAvatarRelay((text, opts) => speaker.speak(text, opts),
+    () => speaker.stop(), () => {}, () => {}, () => { resumes++; });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  assert.equal(speaker.acknowledge('はい。'), true);
+  relay({ type: 'message', message: {
+    role: 'assistant', type: 'reasoning', content: 'thinking',
+  } });
+  relay({ type: 'assistant_turn_complete' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(resumes, 1);
+  assert.equal(runtime.played.length, 0);
+  speaker.destroy();
+});
+
+test('reasoning-only completion stops an active acknowledgement before microphone resumes', async () => {
+  const runtime = makeRuntime();
+  const speaker = createSpeaker(runtime);
+  await speaker.prepareAcknowledgement('はい。');
+  const { createAvatarRelay } = await import('../src/lib/avatar.js');
+  let resumes = 0;
+  const relay = createAvatarRelay((text, opts) => speaker.speak(text, opts),
+    () => speaker.stop(), () => {}, () => {}, () => { resumes++; });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  let started;
+  let release;
+  const entered = new Promise((resolve) => { started = resolve; });
+  const stopped = new Promise((resolve) => { release = resolve; });
+  let stopCalled = false;
+  runtime.avatar.speakStream = async (chunks) => {
+    for await (const _part of chunks) {
+      started();
+      await stopped;
+    }
+  };
+  runtime.avatar.stop = () => { stopCalled = true; release(); };
+  assert.equal(speaker.acknowledge('はい。'), true);
+  await entered;
+  relay({ type: 'assistant_turn_complete' });
+  assert.equal(stopCalled, true);
+  assert.equal(resumes, 1);
+  speaker.destroy();
+});
+
 test('preparation failures and oversized cache never block a normal answer', async () => {
   const runtime = makeRuntime();
   runtime.tts.speakStream = async function* (text) {
