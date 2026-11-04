@@ -123,3 +123,44 @@ def test_authenticated_avatar_turn_completion_keeps_identity_context(
         "assistant_turn_cancelled" if access_revoked else "assistant_turn_complete"
     ]
     assert get_current_turn_context() is None
+
+
+def test_early_worker_setup_failure_does_not_strand_room_or_global_lock(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("UAGENT_PROVIDER", "offline-test")
+    monkeypatch.setattr(agent_worker, "resolve_identity_mode", lambda: "local")
+    monkeypatch.setattr(agent_worker.web_manager, "room_worker_pool", None)
+    monkeypatch.setattr(
+        agent_worker.web_manager, "execution_profile", "local_trusted", raising=False
+    )
+    monkeypatch.setattr(
+        agent_worker.web_manager, "sandbox_enabled", False, raising=False
+    )
+    global_lock = threading.Lock()
+    monkeypatch.setattr(agent_worker.web_manager, "global_worker_lock", global_lock)
+    core = SimpleNamespace(
+        log_message=lambda _message: None,
+        status_busy=False,
+        status_label="IDLE",
+        interrupt_lock=threading.Lock(),
+        interrupt_requested=False,
+    )
+    monkeypatch.setattr(agent_worker, "core", core)
+    monkeypatch.setattr(
+        agent_worker,
+        "bind_room_session_runtime",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("simulated setup failure")),
+    )
+    room = WebRoom("setup-failure")
+    room.base_dir = str(tmp_path)
+    room.history_initialized = True
+    room.session_id = "existing-session"
+
+    agent_worker.run_agent_worker(room, "質問です。")
+
+    assert room.worker_lock.acquire(blocking=False)
+    room.worker_lock.release()
+    assert global_lock.acquire(blocking=False)
+    global_lock.release()
+    assert room.status["busy"] is False
