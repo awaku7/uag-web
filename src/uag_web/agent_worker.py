@@ -1007,6 +1007,7 @@ def run_agent_worker(
             room.human_ask_sync_event.set()
         except Exception:
             pass
+
         # The final authorization check must run inside the SAME turn identity
         # scope as the LLM call. Outside that scope, scoped memory snapshots
         # appear revoked even when the answer is valid, silencing avatar audio.
