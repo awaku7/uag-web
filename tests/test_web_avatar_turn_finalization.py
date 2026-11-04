@@ -157,7 +157,8 @@ def test_early_worker_setup_failure_does_not_strand_room_or_global_lock(
     room.history_initialized = True
     room.session_id = "existing-session"
 
-    agent_worker.run_agent_worker(room, "質問です。")
+    with pytest.raises(RuntimeError, match="simulated setup failure"):
+        agent_worker.run_agent_worker(room, "質問です。")
 
     assert room.worker_lock.acquire(blocking=False)
     room.worker_lock.release()
