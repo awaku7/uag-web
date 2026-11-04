@@ -30,8 +30,8 @@ return true;
 }
 function u(f){s!==f&&(s=f,n(f))}
 function l(f,{measureFinal:g=!1}={}){
-const w=ou(f);if(!w)return Promise.resolve();
-const d=$l(w);if(g)cancelAck();const b=a;
+if(g)cancelAck();const w=ou(f);if(!w)return Promise.resolve();
+const d=$l(w),b=a;
 return i=i.then(async()=>{
 if(b!==a)return;let y=!1;
 async function*_(){for(const m of d.length?d:[w]){const v={emotion:Zl[Ql(m)]};for await(const R of e.tts.speakStream(m,v)){if(b!==a)return;g&&(r==null||r.firstAudioChunk()),y=!0,yield{pcm:R.pcm,sampleRate:R.sampleRate}}}}
