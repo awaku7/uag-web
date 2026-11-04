@@ -107,9 +107,9 @@ test('preparation failures and oversized cache never block a normal answer', asy
 
 test('only successful voice input starts optional acknowledgement and deployment matches source', () => {
   const panel = readFileSync(new URL('../src/lib/components/AvatarPanel.svelte', import.meta.url), 'utf8');
-  assert.match(panel, /speaker\\?\\.acknowledge\\(getLang\\(\\) === 'ja'/);
-  assert.match(panel, /speaker\\.prepareAcknowledgement\\(getLang\\(\\) === 'ja'/);
+  assert.match(panel, /speaker\?\.acknowledge\(getLang\(\) === 'ja'/);
+  assert.match(panel, /speaker\.prepareAcknowledgement\(getLang\(\) === 'ja'/);
   const built = readFileSync(new URL('../../src/uag_web/static/assets/index.js', import.meta.url), 'utf8');
-  assert.match(built, /acknowledge\\(ka\\(\\)===/);
-  assert.match(built, /prepareAcknowledgement\\(ka\\(\\)===/);
+  assert.match(built, /acknowledge\(ka\(\)===/);
+  assert.match(built, /prepareAcknowledgement\(ka\(\)===/);
 });
