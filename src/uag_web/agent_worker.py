@@ -1007,14 +1007,12 @@ def run_agent_worker(
             room.human_ask_sync_event.set()
         except Exception:
             pass
-        # End any open assistant stream so the UI does not stay mid-stream.
-        try:
+
+        # The final authorization check must run inside the SAME turn identity
+        # scope as the LLM call. Outside that scope, scoped memory snapshots
+        # appear revoked even when the answer is valid, silencing avatar audio.
+        def _finish_stream_in_turn_context() -> None:
             _stream_end()
-        except Exception:
-            pass
-        # A revoked memory projection must discard any response already
-        # buffered by the browser rather than being treated as completed.
-        try:
             if (
                 getattr(core, "_memory_projection_invalidated", False)
                 or not _memory_projection_is_current()
@@ -1023,8 +1021,16 @@ def run_agent_worker(
             else:
                 # The final stored assistant message can follow stream_end.
                 _web_stream_send({"type": "assistant_turn_complete"})
+
+        try:
+            _run_web_turn(_finish_stream_in_turn_context)
         except Exception:
-            pass
+            # Setup may have failed before the sender was defined. Do not
+            # strand worker locks while attempting a best-effort cancellation.
+            try:
+                _web_stream_send({"type": "assistant_turn_cancelled"})
+            except Exception:
+                pass
 
         try:
             with web_manager.active_room_lock:
