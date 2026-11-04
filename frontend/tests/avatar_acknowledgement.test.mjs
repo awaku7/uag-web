@@ -71,7 +71,7 @@ test('final answer preempts an acknowledgement already playing', async () => {
   runtime.avatar.speakStream = async (chunks) => {
     const parts = [];
     for await (const part of chunks) parts.push(part);
-    if (parts[0]?.pcm?.[0] === 0.2) {
+    if (Math.abs((parts[0]?.pcm?.[0] ?? 0) - 0.2) < 0.001) {
       started();
       await stopped;
     }
