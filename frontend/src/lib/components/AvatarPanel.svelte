@@ -68,7 +68,8 @@
         error = labels.speechFailed;
       }, latency);
       // Try once after loading; the next click/Enter will retry in a gesture.
-      resumeAudioFromGesture();
+      try { loaded.avatar.resume(); }
+      catch (cause) { console.warn('[uagav] Could not resume avatar audio', cause); }
     } catch (cause) {
       if (current === attempt) {
         console.error('[uagav] Avatar initialization failed', cause);
