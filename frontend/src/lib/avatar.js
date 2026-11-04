@@ -203,11 +203,12 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
     onLastPhraseChange(phrase);
   }
   function speak(text, { measureFinal = false } = {}) {
+    // Even a code-only or image-only final answer must end acknowledgement
+    // playback before the relay resumes the microphone.
+    if (measureFinal) cancelAcknowledgement();
     const value = spokenText(text);
     if (!value) return Promise.resolve();
     const segments = splitSpeechSegments(value);
-    // A ready final answer always takes priority over the optional acknowledgement.
-    if (measureFinal) cancelAcknowledgement();
     const current = generation;
     queue = queue.then(async () => {
       if (current !== generation) return;
