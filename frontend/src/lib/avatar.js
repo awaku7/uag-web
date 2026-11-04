@@ -133,12 +133,79 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
   let generation = 0;
   let queue = Promise.resolve();
   let lastFinalPhrase = '';
+  // Pre-synthesized short acknowledgement; never part of final-answer replay.
+  let acknowledgement = null;
+  let acknowledgementText = '';
+  let preparationVersion = 0;
+  let acknowledgementVersion = 0;
+  let acknowledgementPlaying = false;
+  let destroyed = false;
+  async function prepareAcknowledgement(text) {
+    const value = spokenText(text);
+    if (!value || destroyed) return;
+    const current = ++preparationVersion;
+    acknowledgement = null;
+    acknowledgementText = '';
+    try {
+      const chunks = [];
+      let samples = 0;
+      for await (const part of runtime.tts.speakStream(value, { emotion: emotionBlend.neutral })) {
+        if (destroyed || current !== preparationVersion) return;
+        if (!part?.pcm?.length || !Number.isFinite(part.sampleRate)) return;
+        samples += part.pcm.length;
+        // Keep the optional cache bounded; never delay an answer to warm it up.
+        if (chunks.length >= 64 || samples > 288000) return;
+        chunks.push({ pcm: Float32Array.from(part.pcm), sampleRate: part.sampleRate });
+      }
+      if (!destroyed && current === preparationVersion && chunks.length) {
+        acknowledgement = chunks;
+        acknowledgementText = value;
+      }
+    } catch (error) {
+      if (!destroyed) console.warn('[uagav] Acknowledgement cache unavailable', error);
+    }
+  }
+  function cancelAcknowledgement() {
+    acknowledgementVersion++;
+    if (acknowledgementPlaying) {
+      acknowledgementPlaying = false;
+      runtime.avatar.stop();
+    }
+  }
+  function acknowledge(text) {
+    if (destroyed || !acknowledgement || acknowledgementText !== spokenText(text)) return false;
+    const current = generation;
+    const playback = ++acknowledgementVersion;
+    queue = queue.then(async () => {
+      if (current !== generation || playback !== acknowledgementVersion || destroyed) return;
+      acknowledgementPlaying = true;
+      async function* cachedAudio() {
+        for (const part of acknowledgement) {
+          if (current !== generation || playback !== acknowledgementVersion) return;
+          yield part;
+        }
+      }
+      try {
+        await runtime.avatar.speakStream(cachedAudio());
+      } catch (error) {
+        if (current === generation && playback === acknowledgementVersion) {
+          console.warn('[uagav] Acknowledgement playback unavailable', error);
+        }
+      } finally {
+        if (playback === acknowledgementVersion) acknowledgementPlaying = false;
+      }
+    });
+    return true;
+  }
   function rememberPhrase(phrase) {
     if (lastFinalPhrase === phrase) return;
     lastFinalPhrase = phrase;
     onLastPhraseChange(phrase);
   }
   function speak(text, { measureFinal = false } = {}) {
+    // Even a code-only or image-only final answer must end acknowledgement
+    // playback before the relay resumes the microphone.
+    if (measureFinal) cancelAcknowledgement();
     const value = spokenText(text);
     if (!value) return Promise.resolve();
     const segments = splitSpeechSegments(value);
@@ -172,9 +239,21 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
   }
   return {
     speak,
+    prepareAcknowledgement,
+    acknowledge,
     repeatLast() { return lastFinalPhrase ? speak(lastFinalPhrase) : Promise.resolve(); },
-    stop() { generation++; rememberPhrase(''); runtime.avatar.stop(); },
-    destroy() { generation++; rememberPhrase(''); runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
+    stop() { generation++; cancelAcknowledgement(); rememberPhrase(''); runtime.avatar.stop(); },
+    destroy() {
+      destroyed = true;
+      preparationVersion++;
+      acknowledgement = null;
+      generation++;
+      cancelAcknowledgement();
+      rememberPhrase('');
+      runtime.avatar.stop();
+      runtime.avatar.destroy();
+      runtime.tts.destroy();
+    },
   };
 }
 
@@ -189,12 +268,24 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   let toolAnnounced = false;
   let resumeStoppedTurn = false;
   const localUserMessageIds = new Set();
+  let captureEpoch = 0;
+  function stopAndInvalidate() {
+    // Old asynchronous speech completion must not resume a newer turn's mic.
+    captureEpoch++;
+    stop();
+  }
 
   function speakAndResume(value) {
+    const currentEpoch = captureEpoch;
     let playback;
     try { playback = speak(value, { measureFinal: true }); }
-    catch (_) { resumeCapture(); return; }
-    Promise.resolve(playback).catch(() => {}).finally(resumeCapture);
+    catch (_) {
+      if (currentEpoch === captureEpoch) resumeCapture();
+      return;
+    }
+    Promise.resolve(playback).catch(() => {}).finally(() => {
+      if (currentEpoch === captureEpoch) resumeCapture();
+    });
   }
 
   return (event) => {
@@ -230,7 +321,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       suppressStreamStart = event.type === 'human_ask'
         ? wasSuppressed : event.type !== 'init' && !turnActive;
       toolAnnounced = false;
-      stop();
+      stopAndInvalidate();
       const interrupted = event.type === 'assistant_stream_interrupted'
         || event.type === 'assistant_turn_cancelled';
       const keepCapture = interrupted || event.preserveCapture === true || turnActive;
@@ -249,7 +340,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         suppressStreamStart = false;
         resumeStoppedTurn = false;
         toolAnnounced = false;
-        stop();
+        stopAndInvalidate();
         pauseCapture();
       }
     } else if (event.type === 'assistant_stream_start' && !event.snapshot) {
@@ -259,7 +350,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         turnActive = true;
         resumeStoppedTurn = false;
         toolAnnounced = false;
-        stop();
+        stopAndInvalidate();
       }
       if (!turnActive) return;
       id = event.id;
@@ -304,6 +395,9 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         speakAndResume(answer);
       } else {
         latency?.reset();
+        // A reasoning-only or empty final answer must end an acknowledgement
+        // before dictation starts listening again.
+        stopAndInvalidate();
         resumeCapture();
       }
     } else if (id !== null && event.id === id) {

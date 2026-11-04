@@ -157,8 +157,10 @@ test('interrupt, human ask and connection reset discard pending speech', () => {
     relay({ type, id: 1 });
     relay({ type: 'assistant_stream_end', id: 1 });
     relay({ type: 'assistant_turn_complete' });
-    // A fresh remote stream and the subsequent interruption each stop playback.
-    assert.deepEqual(spoken, []); assert.equal(stopped, 2);
+    // human_ask keeps the turn active, so its empty completion now also stops
+    // any acknowledgement before allowing dictation to resume.
+    assert.deepEqual(spoken, []);
+    assert.equal(stopped, type === 'human_ask' ? 3 : 2);
   }
 });
 
