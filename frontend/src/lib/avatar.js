@@ -129,33 +129,48 @@ export function installAvatarAudioActivation(target, getAvatar, onError = () => 
 }
 
 // Cancelled synthesis cannot play later, even if the SDK finishes after stop().
-export function createSpeaker(runtime, onError = () => {}, latency = null) {
+export function createSpeaker(runtime, onError = () => {}, latency = null, onLastPhraseChange = () => {}) {
   let generation = 0;
   let queue = Promise.resolve();
-  return {
-    speak(text, { measureFinal = false } = {}) {
-      const value = spokenText(text);
-      if (!value) return Promise.resolve();
-      const segments = splitSpeechSegments(value);
-      const current = generation;
-      queue = queue.then(async () => {
-        if (current !== generation) return;
-        async function* chunks() {
-          for (const segment of segments.length ? segments : [value]) {
-            const options = { emotion: emotionBlend[classifyEmotion(segment)] };
-            for await (const part of runtime.tts.speakStream(segment, options)) {
-              if (current !== generation) return;
-              if (measureFinal) latency?.firstAudioChunk();
-              yield { pcm: part.pcm, sampleRate: part.sampleRate };
-            }
+  let lastFinalPhrase = '';
+  function rememberPhrase(phrase) {
+    if (lastFinalPhrase === phrase) return;
+    lastFinalPhrase = phrase;
+    onLastPhraseChange(phrase);
+  }
+  function speak(text, { measureFinal = false } = {}) {
+    const value = spokenText(text);
+    if (!value) return Promise.resolve();
+    const segments = splitSpeechSegments(value);
+    const current = generation;
+    queue = queue.then(async () => {
+      if (current !== generation) return;
+      let deliveredAudio = false;
+      async function* chunks() {
+        for (const segment of segments.length ? segments : [value]) {
+          const options = { emotion: emotionBlend[classifyEmotion(segment)] };
+          for await (const part of runtime.tts.speakStream(segment, options)) {
+            if (current !== generation) return;
+            if (measureFinal) latency?.firstAudioChunk();
+            deliveredAudio = true;
+            yield { pcm: part.pcm, sampleRate: part.sampleRate };
           }
         }
-        await runtime.avatar.speakStream(chunks());
-      }).catch((error) => { if (current === generation) onError(error); });
-      return queue;
-    },
-    stop() { generation++; runtime.avatar.stop(); },
-    destroy() { generation++; runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
+      }
+      await runtime.avatar.speakStream(chunks());
+      // Replay only the last sentence of a successfully completed final answer.
+      // Tool announcements, interrupted turns and unsent audio are excluded.
+      if (measureFinal && deliveredAudio && current === generation) {
+        rememberPhrase(segments.at(-1) || value);
+      }
+    }).catch((error) => { if (current === generation) onError(error); });
+    return queue;
+  }
+  return {
+    speak,
+    repeatLast() { return lastFinalPhrase ? speak(lastFinalPhrase) : Promise.resolve(); },
+    stop() { generation++; rememberPhrase(''); runtime.avatar.stop(); },
+    destroy() { generation++; rememberPhrase(''); runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
   };
 }
 
