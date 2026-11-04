@@ -1,7 +1,7 @@
 // Manual integration test; requires locally installed official resources and Playwright.
 // Run against a local uagav instance; WebSocket replies are synthetic, SDK/voices are real.
 import { chromium } from '../frontend/node_modules/playwright/index.mjs';
-const browser = await chromium.launch({ args: ['--no-sandbox', '--enable-unsafe-webgpu', '--mute-audio', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required', '--use-angle=vulkan', '--enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan', '--use-vulkan=native', '--disable-vulkan-surface'] });
+const browser = await chromium.launch({ args: ['--no-sandbox', '--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan', '--enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan', '--use-vulkan=native', '--disable-vulkan-surface'] });
 const page = await browser.newPage({ locale: 'ja-JP' });
 let socket;
 await page.addInitScript(() => {
@@ -35,6 +35,12 @@ try {
   console.log('UI', await page.locator('.avatar-panel').innerText());
 
   if (await page.getByRole('alert').count()) throw new Error(await page.getByRole('alert').innerText());
+  // Model loading is asynchronous. A real click after it completes is
+  // required to unlock AudioContext in browsers enforcing autoplay policy.
+  await page.locator('textarea').click();
+  // The relay intentionally ignores assistant streams without an active user
+  // turn. A synthetic user message is needed before synthetic assistant output.
+  socket.send(JSON.stringify({type:'message',message:{role:'user',content:'音声の動作確認'}}));
   socket.send(JSON.stringify({type:'assistant_stream_start', id:'avatar-test'}));
   socket.send(JSON.stringify({type:'assistant_stream_delta', id:'avatar-test', delta:'こんにちは。'}));
   socket.send(JSON.stringify({type:'assistant_stream_end', id:'avatar-test'}));
