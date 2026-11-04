@@ -383,6 +383,9 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         speakAndResume(answer);
       } else {
         latency?.reset();
+        // A reasoning-only or empty final answer must end an acknowledgement
+        // before dictation starts listening again.
+        stop();
         resumeCapture();
       }
     } else if (id !== null && event.id === id) {
