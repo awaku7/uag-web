@@ -133,6 +133,70 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
   let generation = 0;
   let queue = Promise.resolve();
   let lastFinalPhrase = '';
+  // Pre-synthesized short acknowledgement; never part of final-answer replay.
+  let acknowledgement = null;
+  let acknowledgementText = '';
+  let preparationVersion = 0;
+  let acknowledgementVersion = 0;
+  let acknowledgementPlaying = false;
+  let destroyed = false;
+  async function prepareAcknowledgement(text) {
+    const value = spokenText(text);
+    if (!value || destroyed) return;
+    const current = ++preparationVersion;
+    acknowledgement = null;
+    acknowledgementText = '';
+    try {
+      const chunks = [];
+      let samples = 0;
+      for await (const part of runtime.tts.speakStream(value, { emotion: emotionBlend.neutral })) {
+        if (destroyed || current !== preparationVersion) return;
+        if (!part?.pcm?.length || !Number.isFinite(part.sampleRate)) return;
+        samples += part.pcm.length;
+        // Keep the optional cache bounded; never delay an answer to warm it up.
+        if (chunks.length >= 64 || samples > 288000) return;
+        chunks.push({ pcm: Float32Array.from(part.pcm), sampleRate: part.sampleRate });
+      }
+      if (!destroyed && current === preparationVersion && chunks.length) {
+        acknowledgement = chunks;
+        acknowledgementText = value;
+      }
+    } catch (error) {
+      if (!destroyed) console.warn('[uagav] Acknowledgement cache unavailable', error);
+    }
+  }
+  function cancelAcknowledgement() {
+    acknowledgementVersion++;
+    if (acknowledgementPlaying) {
+      acknowledgementPlaying = false;
+      runtime.avatar.stop();
+    }
+  }
+  function acknowledge(text) {
+    if (destroyed || !acknowledgement || acknowledgementText !== spokenText(text)) return false;
+    const current = generation;
+    const playback = ++acknowledgementVersion;
+    queue = queue.then(async () => {
+      if (current !== generation || playback !== acknowledgementVersion || destroyed) return;
+      acknowledgementPlaying = true;
+      async function* cachedAudio() {
+        for (const part of acknowledgement) {
+          if (current !== generation || playback !== acknowledgementVersion) return;
+          yield part;
+        }
+      }
+      try {
+        await runtime.avatar.speakStream(cachedAudio());
+      } catch (error) {
+        if (current === generation && playback === acknowledgementVersion) {
+          console.warn('[uagav] Acknowledgement playback unavailable', error);
+        }
+      } finally {
+        if (playback === acknowledgementVersion) acknowledgementPlaying = false;
+      }
+    });
+    return true;
+  }
   function rememberPhrase(phrase) {
     if (lastFinalPhrase === phrase) return;
     lastFinalPhrase = phrase;
@@ -142,6 +206,8 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
     const value = spokenText(text);
     if (!value) return Promise.resolve();
     const segments = splitSpeechSegments(value);
+    // A ready final answer always takes priority over the optional acknowledgement.
+    if (measureFinal) cancelAcknowledgement();
     const current = generation;
     queue = queue.then(async () => {
       if (current !== generation) return;
@@ -172,9 +238,21 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
   }
   return {
     speak,
+    prepareAcknowledgement,
+    acknowledge,
     repeatLast() { return lastFinalPhrase ? speak(lastFinalPhrase) : Promise.resolve(); },
-    stop() { generation++; rememberPhrase(''); runtime.avatar.stop(); },
-    destroy() { generation++; rememberPhrase(''); runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
+    stop() { generation++; cancelAcknowledgement(); rememberPhrase(''); runtime.avatar.stop(); },
+    destroy() {
+      destroyed = true;
+      preparationVersion++;
+      acknowledgement = null;
+      generation++;
+      cancelAcknowledgement();
+      rememberPhrase('');
+      runtime.avatar.stop();
+      runtime.avatar.destroy();
+      runtime.tts.destroy();
+    },
   };
 }
 
