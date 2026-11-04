@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getLang } from '../i18n.svelte.js';
   import { subscribeAvatar } from '../stores.svelte.js';
-  import { loadAvatar, createSpeaker, createAvatarRelay, createContinuousDictation, createAvatarLatency, AVATAR_FINAL_SILENCE_MS } from '../avatar.js';
+  import { loadAvatar, createSpeaker, createAvatarRelay, createContinuousDictation, createAvatarLatency, AVATAR_FINAL_SILENCE_MS, installAvatarAudioActivation } from '../avatar.js';
   let { onSend, onInterrupt } = $props();
   let presets = $state([]);
   let voices = $state([]);
@@ -30,16 +30,6 @@
   let selectedVoice = $derived(voices.find((item) => item.id === voice));
 
   function stop() { speaker?.stop(); }
-  // ZEN-LipSync creates its AudioContext after asynchronous model loading.
-  // Some browsers require a later, genuine user gesture to unlock playback.
-  function resumeAudioFromGesture() {
-    if (!runtime || loading) return;
-    try { runtime.avatar.resume(); }
-    catch (cause) { console.warn('[uagav] Could not resume avatar audio', cause); }
-  }
-  function resumeAudioFromKey(event) {
-    if (event.key === 'Enter' || event.key === ' ') resumeAudioFromGesture();
-  }
   function changeTtsBackend(next) {
     if (useWebGpu === next) return;
     useWebGpu = next;
@@ -88,8 +78,11 @@
     let mounted = true;
     // The audio device may remain suspended if the first user gesture was
     // consumed by loading the ZEN SDK and models. Resume at later gestures.
-    document.addEventListener('pointerdown', resumeAudioFromGesture, true);
-    document.addEventListener('keydown', resumeAudioFromKey, true);
+    const removeAudioActivation = installAvatarAudioActivation(
+      document,
+      () => !loading ? runtime?.avatar : null,
+      (cause) => console.warn('[uagav] Could not resume avatar audio', cause),
+    );
     canListen = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
     fetch('/api/avatar/config').then(async (response) => {
       if (!response.ok) throw new Error();
@@ -120,8 +113,7 @@
     const unsubscribe = subscribeAvatar(relay);
     return () => {
       mounted = false;
-      document.removeEventListener('pointerdown', resumeAudioFromGesture, true);
-      document.removeEventListener('keydown', resumeAudioFromKey, true);
+      removeAudioActivation();
       unsubscribe();
       close();
       latency.reset();
