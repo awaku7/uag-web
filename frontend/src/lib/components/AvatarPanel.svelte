@@ -11,6 +11,9 @@
   let useWebGpu = $state(false);
   let enabled = $state(false);
   let loading = $state(false);
+  let canRepeat = $state(false);
+  let repeating = $state(false);
+  let repeatEpoch = 0;
   let error = $state('');
   let container;
   let speaker;
@@ -22,8 +25,8 @@
   let listening = $state(false);
   let canListen = $state(false);
   const words = {
-    ja: { title: '声・アバター', avatar: 'アバター', voice: '音声', ttsBackend: 'ZEN-TTS', backendHint: '切替時はアバターと音声合成を再初期化し、聞き取りを停止します。', backendFailed: 'WebGPUモードで開始できませんでした。CPUに戻して再試行してください。', kaiNote: 'カイは音声のみ公開されています。カイ専用のリップシンク用アバターはありません。', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: 'アバターまたは音声モデルが未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', speechFailed: '音声の再生に失敗しました。ブラウザーの開発者ツールで原因を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '確定した音声認識結果から約0.8秒（未確定の場合は約1.1秒）の無音で送信します。音声認識はブラウザ提供元へ送信される場合があります。' },
-    en: { title: 'Voice & avatar', avatar: 'Avatar', voice: 'Voice', ttsBackend: 'ZEN-TTS', backendHint: 'Switching reloads the avatar and TTS, and stops listening.', backendFailed: 'Could not start in WebGPU mode. Switch back to CPU and retry.', kaiNote: 'Kai is a TTS voice only; no matching lip-sync avatar has been published.', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Avatar or voice models have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', speechFailed: 'Audio playback failed. Check the browser developer console for details.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 0.8 s of silence for a final transcript (1.1 s for interim results). Audio may be sent to the browser provider.' },
+    ja: { title: '声・アバター', avatar: 'アバター', voice: '音声', ttsBackend: 'ZEN-TTS', backendHint: '切替時はアバターと音声合成を再初期化し、聞き取りを停止します。', backendFailed: 'WebGPUモードで開始できませんでした。CPUに戻して再試行してください。', kaiNote: 'カイは音声のみ公開されています。カイ専用のリップシンク用アバターはありません。', enable: 'アバターを開始', disable: '閉じる', loading: '読み込み中…', repeat: 'もう一度', listen: '連続聞き取り開始', end: '聞き取り停止', ai: 'AIによる映像', unavailable: 'アバターまたは音声モデルが未セットアップです。', setup: 'セットアップ手順', failed: 'アバターを読み込めませんでした。', blocked: 'メッセージを送信できません。接続を確認してください。', micError: '音声認識を開始できません。マイクの接続とブラウザーの許可を確認してください。', speechFailed: '音声の再生に失敗しました。ブラウザーの開発者ツールで原因を確認してください。', toolWait: 'ツールを利用します。少々お待ちください。', mic: '確定した音声認識結果から約0.8秒（未確定の場合は約1.1秒）の無音で送信します。音声認識はブラウザ提供元へ送信される場合があります。' },
+    en: { title: 'Voice & avatar', avatar: 'Avatar', voice: 'Voice', ttsBackend: 'ZEN-TTS', backendHint: 'Switching reloads the avatar and TTS, and stops listening.', backendFailed: 'Could not start in WebGPU mode. Switch back to CPU and retry.', kaiNote: 'Kai is a TTS voice only; no matching lip-sync avatar has been published.', enable: 'Start avatar', disable: 'Close', loading: 'Loading…', repeat: 'Again', listen: 'Start continuous listening', end: 'Stop listening', ai: 'AI-generated avatar', unavailable: 'Avatar or voice models have not been set up.', setup: 'Setup instructions', failed: 'Could not load the avatar.', blocked: 'Message could not be sent. Check the connection.', micError: 'Speech recognition failed. Check microphone connection and browser permission.', speechFailed: 'Audio playback failed. Check the browser developer console for details.', toolWait: 'I will use a tool. Please wait a moment.', mic: 'Speech is sent after about 0.8 s of silence for a final transcript (1.1 s for interim results). Audio may be sent to the browser provider.' },
   };
   let labels = $derived(words[getLang()] || words.en);
   let selectedAvatar = $derived(presets.find((item) => item.id === avatar));
@@ -36,6 +39,23 @@
     if (enabled) void start();
   }
   function stopVoice() { relay?.({ type: 'avatar_stop', preserveCapture: true }); }
+  async function repeatLastPhrase() {
+    if (!speaker || !canRepeat || loading || repeating) return;
+    const currentSpeaker = speaker;
+    const currentEpoch = repeatEpoch;
+    repeating = true;
+    // Do not let continuous dictation transcribe the avatar's own voice.
+    dictation?.pause();
+    try {
+      await currentSpeaker.repeatLast();
+    } finally {
+      // An interrupt, new turn or avatar reload owns microphone state now.
+      if (speaker === currentSpeaker && repeatEpoch === currentEpoch) {
+        repeating = false;
+        dictation?.resume();
+      }
+    }
+  }
   function close() {
     attempt++;
     stopVoice(); dictation?.cancel();
@@ -56,7 +76,11 @@
       speaker = createSpeaker(loaded, (cause) => {
         console.error('[uagav] Avatar speech failed', cause);
         error = labels.speechFailed;
-      }, latency);
+      }, latency, (phrase) => {
+        canRepeat = !!phrase;
+        repeatEpoch++;
+        if (!phrase) repeating = false;
+      });
       // Try once after loading; the next click/Enter will retry in a gesture.
       try { loaded.avatar.resume(); }
       catch (cause) { console.warn('[uagav] Could not resume avatar audio', cause); }
@@ -137,6 +161,7 @@
     </label>
     {#if enabled}
       <button onclick={close}>{labels.disable}</button>
+      <button onclick={repeatLastPhrase} disabled={!canRepeat || loading || repeating}>{labels.repeat}</button>
     {:else}
       <button onclick={start} disabled={!selectedAvatar?.ready || !selectedVoice?.ready}>{labels.enable}</button>
     {/if}
