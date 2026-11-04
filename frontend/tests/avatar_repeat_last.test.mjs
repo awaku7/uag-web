@@ -45,6 +45,18 @@ test('Again replays only the final sentence, never a tool announcement or a full
   assert.deepEqual(remembered, ['最後の文章です。', '']);
 });
 
+test('English period-delimited reply repeats only its last sentence', async () => {
+  const spoken = [];
+  const speaker = createSpeaker(mockRuntime(spoken), () => assert.fail('unexpected TTS error'));
+  await speaker.speak('The first sentence. The final sentence.', { measureFinal: true });
+  await speaker.repeatLast();
+  assert.deepEqual(spoken, [
+    'The first sentence. The final sentence.',
+    'The final sentence.',
+  ], 'original speech segmentation stays unchanged; only replay uses the last sentence');
+  speaker.destroy();
+});
+
 test('a new turn clears the phrase and never replays an earlier answer', async () => {
   const spoken = [];
   const remembered = [];
