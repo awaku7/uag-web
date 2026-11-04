@@ -161,7 +161,11 @@ export function createSpeaker(runtime, onError = () => {}, latency = null, onLas
       // Replay only the last sentence of a successfully completed final answer.
       // Tool announcements, interrupted turns and unsent audio are excluded.
       if (measureFinal && deliveredAudio && current === generation) {
-        rememberPhrase(segments.at(-1) || value);
+        // The normal speech splitter preserves English period-separated prose
+        // as one segment. For replay only, retain the final sentence.
+        const lastSegment = segments.at(-1) || value;
+        const lastSentence = lastSegment.split(/(?<=\.)\s+/u).filter(Boolean).at(-1);
+        rememberPhrase(lastSentence || lastSegment);
       }
     }).catch((error) => { if (current === generation) onError(error); });
     return queue;
