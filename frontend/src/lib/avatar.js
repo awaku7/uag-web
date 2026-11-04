@@ -68,9 +68,19 @@ export async function initializeAvatarAndTts(makeAvatar, makeTts) {
 }
 
 export const assetBase = '/api/avatar/files';
-export async function loadAvatar(container, avatarId, voiceId = avatarId) {
-  if (!['marine', 'hashiro', 'kikka'].includes(avatarId)) throw new Error('Unknown avatar');
+export function zenTtsLoadOptions(voiceId, backend = 'cpu') {
   if (!['marine', 'hashiro', 'kai', 'kikka'].includes(voiceId)) throw new Error('Unknown voice');
+  if (!['cpu', 'webgpu'].includes(backend)) throw new Error('Unknown TTS backend');
+  return {
+    model: `${assetBase}/models/${voiceId}.ztm`,
+    modelsUrl: `${assetBase}/tts/models`,
+    cpuWasmUrl: `${assetBase}/tts/cpu/tts-cpu.wasm`,
+    backend,
+  };
+}
+export async function loadAvatar(container, avatarId, voiceId = avatarId, ttsBackend = 'cpu') {
+  if (!['marine', 'hashiro', 'kikka'].includes(avatarId)) throw new Error('Unknown avatar');
+  const ttsOptions = zenTtsLoadOptions(voiceId, ttsBackend);
   if (!globalThis.isSecureContext || !navigator.gpu) throw new Error('WebGPU requires a supported browser and HTTPS or localhost.');
   const started = globalThis.performance?.now?.();
   const sdkUrl = `${assetBase}/sdk/dist/index.js`;
@@ -80,7 +90,7 @@ export async function loadAvatar(container, avatarId, voiceId = avatarId) {
   ]);
   const resources = await initializeAvatarAndTts(
     () => create({ container, avatar: `${assetBase}/avatars/avatars/${avatarId}/avatar.json` }),
-    () => ZenTts.load({ model: `${assetBase}/models/${voiceId}.ztm`, modelsUrl: `${assetBase}/tts/models`, cpuWasmUrl: `${assetBase}/tts/cpu/tts-cpu.wasm`, backend: 'cpu' }),
+    () => ZenTts.load(ttsOptions),
   );
   if (started !== undefined) {
     try {
