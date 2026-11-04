@@ -106,6 +106,26 @@ export function spokenText(text) {
   return String(text || '').replace(/```[\s\S]*?```/g, '').replace(/<[^>]*>/g, '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[*#`_]/g, '').trim();
 }
 
+// Browser audio may remain suspended after asynchronous model loading.
+// The SDK owns the AudioContext; resume it during a subsequent genuine gesture.
+export function installAvatarAudioActivation(target, getAvatar, onError = () => {}) {
+  const resume = () => {
+    const avatar = getAvatar();
+    if (!avatar) return;
+    try { avatar.resume(); }
+    catch (error) { onError(error); }
+  };
+  const onKeyDown = (event) => {
+    if (event.key === 'Enter' || event.key === ' ') resume();
+  };
+  target.addEventListener('pointerdown', resume, true);
+  target.addEventListener('keydown', onKeyDown, true);
+  return () => {
+    target.removeEventListener('pointerdown', resume, true);
+    target.removeEventListener('keydown', onKeyDown, true);
+  };
+}
+
 // Cancelled synthesis cannot play later, even if the SDK finishes after stop().
 export function createSpeaker(runtime, onError = () => {}, latency = null) {
   let generation = 0;
