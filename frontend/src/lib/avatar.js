@@ -18,8 +18,6 @@ export function createAvatarLatency(
   let lastResult = null;
   let submitted = null;
   let finalReply = null;
-  let chunkMeasured = false;
-  let speechMeasured = false;
   function duration(name, start, end) {
     if (start !== null && end !== null && end >= start) record(name, start, end);
   }
@@ -36,22 +34,13 @@ export function createAvatarLatency(
     completed() {
       if (submitted === null) return;
       finalReply = now();
-      chunkMeasured = false;
-      speechMeasured = false;
       duration('uagav:send-to-final', submitted, finalReply);
       submitted = null;
     },
     firstAudioChunk() {
-      if (finalReply === null || chunkMeasured) return;
+      if (finalReply === null) return;
       duration('uagav:final-to-first-tts-chunk', finalReply, now());
-      chunkMeasured = true;
-      if (speechMeasured) finalReply = null;
-    },
-    speechStarted() {
-      if (finalReply === null || speechMeasured) return;
-      duration('uagav:final-to-speech-start', finalReply, now());
-      speechMeasured = true;
-      if (chunkMeasured) finalReply = null;
+      finalReply = null;
     },
     // A new input supersedes the old turn. Keep an unsent mic sample because
     // sendUserInput emits avatar_stop(new_input) before dictation calls sent().
@@ -121,10 +110,6 @@ export function spokenText(text) {
 export function createSpeaker(runtime, onError = () => {}, latency = null) {
   let generation = 0;
   let queue = Promise.resolve();
-  const speechStartListeners = new Set();
-  function detachSpeechStartListeners() {
-    for (const cleanup of [...speechStartListeners]) cleanup();
-  }
   return {
     speak(text, { measureFinal = false } = {}) {
       const value = spokenText(text);
@@ -143,36 +128,12 @@ export function createSpeaker(runtime, onError = () => {}, latency = null) {
             }
           }
         }
-        // The SDK's speechstart event marks playback starting, not just PCM
-        // synthesis. Attach only to the final reply, never a tool cue.
-        let cleanup;
-        if (measureFinal && typeof runtime.avatar.on === 'function') {
-          try {
-            const off = runtime.avatar.on('speechstart', () => {
-              if (current === generation) latency?.speechStarted();
-            });
-            if (typeof off === 'function') {
-              let detached = false;
-              cleanup = () => {
-                if (detached) return;
-                detached = true;
-                speechStartListeners.delete(cleanup);
-                try { off(); } catch (_) { /* SDK cleanup is best effort. */ }
-              };
-              speechStartListeners.add(cleanup);
-            }
-          } catch (_) { /* Older SDKs may not implement event listeners. */ }
-        }
-        try {
-          await runtime.avatar.speakStream(chunks());
-        } finally {
-          cleanup?.();
-        }
+        await runtime.avatar.speakStream(chunks());
       }).catch((error) => { if (current === generation) onError(error); });
       return queue;
     },
-    stop() { generation++; detachSpeechStartListeners(); runtime.avatar.stop(); },
-    destroy() { generation++; detachSpeechStartListeners(); runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
+    stop() { generation++; runtime.avatar.stop(); },
+    destroy() { generation++; runtime.avatar.stop(); runtime.avatar.destroy(); runtime.tts.destroy(); },
   };
 }
 
