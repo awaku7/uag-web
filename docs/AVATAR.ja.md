@@ -129,7 +129,9 @@ node scripts/benchmark_tts_browser.mjs
 node scripts/benchmark_tts_browser.mjs http://127.0.0.1:8000/ kai
 ```
 
-Chromiumが一時的に起動し、CPUとWebGPUを**順番に**検証します。
+Chromiumが一時的に起動しますが、アプリ本体を表示せず、同一オリジンの空の診断ページを使います。
+会話履歴の取得や新しいルーム・セッションの作成は行いません。
+CPUとWebGPUを**順番に**検証します。
 それぞれ1回のウォームアップ後、3回の中央値をJSONで出力します。
 実際の会話・マイク・LLMへのアクセスは行わず、固定テスト文を使います。
 音声は再生せず、PCMを生成して計測します。
