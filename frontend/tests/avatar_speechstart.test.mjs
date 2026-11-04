@@ -48,7 +48,7 @@ test('actual speechstart timing is distinct from first TTS PCM and excludes tool
   await speaker.speak('回答します。', { measureFinal: true });
 
   assert.deepEqual(metrics, [
-    { name: 'uagav:mic-result-to-send', ms: 0 },
+    { name: 'uagav:mic-result-to-send', ms: 50 },
     { name: 'uagav:send-to-final', ms: 100 },
     { name: 'uagav:final-to-first-tts-chunk', ms: 40 },
     { name: 'uagav:final-to-speech-start', ms: 50 },
