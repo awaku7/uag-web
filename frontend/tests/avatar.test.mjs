@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeaker, createAvatarRelay, createContinuousDictation, createAvatarLatency, AVATAR_FINAL_SILENCE_MS, AVATAR_INTERIM_SILENCE_MS, spokenText, loadAvatar } from '../src/lib/avatar.js';
+import { createSpeaker, createAvatarRelay, createContinuousDictation, createAvatarLatency, AVATAR_FINAL_SILENCE_MS, AVATAR_INTERIM_SILENCE_MS, spokenText, loadAvatar, initializeAvatarAndTts } from '../src/lib/avatar.js';
 import { classifyEmotion } from '../src/lib/emotion.js';
 
 test('avatar relay speaks only a completed live response, using replacement text', () => {
@@ -719,4 +719,69 @@ test('new_input preserves only an unsent mic sample until WebSocket submission',
     { name: 'uagav:mic-result-to-send', ms: 800 },
     { name: 'uagav:send-to-final', ms: 300 },
   ]);
+});
+
+test('avatar and TTS initialize concurrently without waiting for each other', async () => {
+  const started = [];
+  let resolveAvatar;
+  let resolveTts;
+  const avatarPromise = new Promise((resolve) => { resolveAvatar = resolve; });
+  const ttsPromise = new Promise((resolve) => { resolveTts = resolve; });
+  const resources = initializeAvatarAndTts(
+    () => { started.push('avatar'); return avatarPromise; },
+    () => { started.push('tts'); return ttsPromise; },
+  );
+  await Promise.resolve();
+  assert.deepEqual(started, ['avatar', 'tts']);
+  resolveTts({ kind: 'tts' });
+  await Promise.resolve();
+  resolveAvatar({ kind: 'avatar' });
+  assert.deepEqual(await resources, {
+    avatar: { kind: 'avatar' },
+    tts: { kind: 'tts' },
+  });
+});
+
+test('failed avatar setup destroys a TTS instance that loaded concurrently', async () => {
+  const failure = new Error('avatar unavailable');
+  let destroyed = 0;
+  await assert.rejects(
+    initializeAvatarAndTts(
+      () => Promise.reject(failure),
+      () => ({ destroy() { destroyed++; } }),
+    ),
+    (error) => error === failure,
+  );
+  assert.equal(destroyed, 1);
+});
+
+test('failed TTS setup destroys a concurrently loaded avatar', async () => {
+  const failure = new Error('tts unavailable');
+  let destroyed = 0;
+  await assert.rejects(
+    initializeAvatarAndTts(
+      () => ({ destroy() { destroyed++; throw Error('cleanup failure'); } }),
+      () => Promise.reject(failure),
+    ),
+    (error) => error === failure,
+  );
+  assert.equal(destroyed, 1);
+});
+
+test('synchronous setup errors still allow a concurrent loader to run and clean up', async () => {
+  const failure = new Error('avatar failed synchronously');
+  let ttsCreated = false;
+  let ttsDestroyed = false;
+  await assert.rejects(
+    initializeAvatarAndTts(
+      () => { throw failure; },
+      () => {
+        ttsCreated = true;
+        return { destroy() { ttsDestroyed = true; } };
+      },
+    ),
+    (error) => error === failure,
+  );
+  assert.equal(ttsCreated, true);
+  assert.equal(ttsDestroyed, true);
 });

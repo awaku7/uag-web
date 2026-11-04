@@ -49,25 +49,47 @@ export function createAvatarLatency(
   };
 }
 
+// Load the independently installed SDK assets concurrently. If either fails,
+// wait for both to settle and destroy any resource the other one created.
+export async function initializeAvatarAndTts(makeAvatar, makeTts) {
+  const [avatarResult, ttsResult] = await Promise.allSettled([
+    Promise.resolve().then(makeAvatar),
+    Promise.resolve().then(makeTts),
+  ]);
+  if (avatarResult.status === 'fulfilled' && ttsResult.status === 'fulfilled') {
+    return { avatar: avatarResult.value, tts: ttsResult.value };
+  }
+  for (const result of [avatarResult, ttsResult]) {
+    if (result.status === 'fulfilled') {
+      try { result.value?.destroy?.(); } catch (_) { /* Keep the load error. */ }
+    }
+  }
+  throw avatarResult.status === 'rejected' ? avatarResult.reason : ttsResult.reason;
+}
+
 export const assetBase = '/api/avatar/files';
 export async function loadAvatar(container, avatarId, voiceId = avatarId) {
   if (!['marine', 'hashiro', 'kikka'].includes(avatarId)) throw new Error('Unknown avatar');
   if (!['marine', 'hashiro', 'kai', 'kikka'].includes(voiceId)) throw new Error('Unknown voice');
   if (!globalThis.isSecureContext || !navigator.gpu) throw new Error('WebGPU requires a supported browser and HTTPS or localhost.');
+  const started = globalThis.performance?.now?.();
   const sdkUrl = `${assetBase}/sdk/dist/index.js`;
   const ttsUrl = `${assetBase}/tts/dist/index.js`;
   const [{ create }, { ZenTts }] = await Promise.all([
     import(/* @vite-ignore */ sdkUrl), import(/* @vite-ignore */ ttsUrl),
   ]);
-  let avatar;
-  let tts;
-  try {
-    avatar = await create({ container, avatar: `${assetBase}/avatars/avatars/${avatarId}/avatar.json` });
-    tts = await ZenTts.load({ model: `${assetBase}/models/${voiceId}.ztm`, modelsUrl: `${assetBase}/tts/models`, cpuWasmUrl: `${assetBase}/tts/cpu/tts-cpu.wasm`, backend: 'cpu' });
-    return { avatar, tts };
-  } catch (error) {
-    avatar?.destroy(); tts?.destroy(); throw error;
+  const resources = await initializeAvatarAndTts(
+    () => create({ container, avatar: `${assetBase}/avatars/avatars/${avatarId}/avatar.json` }),
+    () => ZenTts.load({ model: `${assetBase}/models/${voiceId}.ztm`, modelsUrl: `${assetBase}/tts/models`, cpuWasmUrl: `${assetBase}/tts/cpu/tts-cpu.wasm`, backend: 'cpu' }),
+  );
+  if (started !== undefined) {
+    try {
+      const name = 'uagav:avatar-startup';
+      globalThis.performance?.clearMeasures?.(name);
+      globalThis.performance?.measure?.(name, { start: started, end: globalThis.performance.now() });
+    } catch (_) { /* Performance API is optional. */ }
   }
+  return resources;
 }
 
 export function spokenText(text) {
