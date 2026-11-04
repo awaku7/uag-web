@@ -2,6 +2,7 @@
 // installed by the operator; no LLM traffic, microphone, chat text, or uploads.
 // Usage: node scripts/benchmark_tts_browser.mjs [uagav-url] [voice-id]
 import { chromium } from '../frontend/node_modules/playwright/index.mjs';
+import { openInertBenchmarkPage } from './benchmark_tts_origin.mjs';
 
 const serverUrl = process.argv[2] || 'http://127.0.0.1:8000/';
 const voiceId = process.argv[3] || 'marine';
@@ -19,7 +20,8 @@ const browser = await chromium.launch({ headless: false });
 const page = await browser.newPage({ locale: 'ja-JP' });
 page.setDefaultTimeout(180000);
 try {
-  await page.goto(target.href, { waitUntil: 'domcontentloaded' });
+  // Never run App.svelte: it would create rooms and load conversation history.
+  await openInertBenchmarkPage(page, target.href);
   const results = await page.evaluate(async ({ voiceId }) => {
     const configResponse = await fetch('/api/avatar/config');
     if (!configResponse.ok) {
