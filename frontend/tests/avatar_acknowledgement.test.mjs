@@ -87,6 +87,24 @@ test('final answer preempts an acknowledgement already playing', async () => {
   speaker.destroy();
 });
 
+test('code-only final answer cancels pending acknowledgement before microphone resumes', async () => {
+  const runtime = makeRuntime();
+  const speaker = createSpeaker(runtime);
+  await speaker.prepareAcknowledgement('はい。');
+  const { createAvatarRelay } = await import('../src/lib/avatar.js');
+  let resumes = 0;
+  const relay = createAvatarRelay((text, opts) => speaker.speak(text, opts),
+    () => speaker.stop(), () => {}, () => {}, () => { resumes++; });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  assert.equal(speaker.acknowledge('はい。'), true);
+  relay({ type: 'message', message: { role: 'assistant', content: '`' + '`' + '`js\\n42\\n' + '`' + '`' + '`' } });
+  relay({ type: 'assistant_turn_complete' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(resumes, 1);
+  assert.equal(runtime.played.length, 0, 'acknowledgement must not outlive an unspoken final');
+  speaker.destroy();
+});
+
 test('preparation failures and oversized cache never block a normal answer', async () => {
   const runtime = makeRuntime();
   runtime.tts.speakStream = async function* (text) {
