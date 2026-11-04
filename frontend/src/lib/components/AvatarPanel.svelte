@@ -81,6 +81,8 @@
         repeatEpoch++;
         if (!phrase) repeating = false;
       });
+      // Best-effort background TTS warm-up; normal responses never wait for it.
+      void speaker.prepareAcknowledgement(getLang() === 'ja' ? 'はい。' : 'Okay.');
       // Try once after loading; the next click/Enter will retry in a gesture.
       try { loaded.avatar.resume(); }
       catch (cause) { console.warn('[uagav] Could not resume avatar audio', cause); }
@@ -126,6 +128,9 @@
       (text) => {
         if (!onSend(text, [])) { error = labels.blocked; return false; }
         error = '';
+        // Only successfully sent microphone turns get a brief acknowledgement.
+        // If the cache is not ready, skip it rather than delaying the answer.
+        speaker?.acknowledge(getLang() === 'ja' ? 'はい。' : 'Okay.');
         return true;
       },
       (value) => { listening = value; },
