@@ -268,12 +268,24 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
   let toolAnnounced = false;
   let resumeStoppedTurn = false;
   const localUserMessageIds = new Set();
+  let captureEpoch = 0;
+  function stopAndInvalidate() {
+    // Old asynchronous speech completion must not resume a newer turn's mic.
+    captureEpoch++;
+    stop();
+  }
 
   function speakAndResume(value) {
+    const currentEpoch = captureEpoch;
     let playback;
     try { playback = speak(value, { measureFinal: true }); }
-    catch (_) { resumeCapture(); return; }
-    Promise.resolve(playback).catch(() => {}).finally(resumeCapture);
+    catch (_) {
+      if (currentEpoch === captureEpoch) resumeCapture();
+      return;
+    }
+    Promise.resolve(playback).catch(() => {}).finally(() => {
+      if (currentEpoch === captureEpoch) resumeCapture();
+    });
   }
 
   return (event) => {
@@ -309,7 +321,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
       suppressStreamStart = event.type === 'human_ask'
         ? wasSuppressed : event.type !== 'init' && !turnActive;
       toolAnnounced = false;
-      stop();
+      stopAndInvalidate();
       const interrupted = event.type === 'assistant_stream_interrupted'
         || event.type === 'assistant_turn_cancelled';
       const keepCapture = interrupted || event.preserveCapture === true || turnActive;
@@ -328,7 +340,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         suppressStreamStart = false;
         resumeStoppedTurn = false;
         toolAnnounced = false;
-        stop();
+        stopAndInvalidate();
         pauseCapture();
       }
     } else if (event.type === 'assistant_stream_start' && !event.snapshot) {
@@ -338,7 +350,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         turnActive = true;
         resumeStoppedTurn = false;
         toolAnnounced = false;
-        stop();
+        stopAndInvalidate();
       }
       if (!turnActive) return;
       id = event.id;
@@ -385,7 +397,7 @@ export function createAvatarRelay(speak, stop, cancelCapture = () => {}, pauseCa
         latency?.reset();
         // A reasoning-only or empty final answer must end an acknowledgement
         // before dictation starts listening again.
-        stop();
+        stopAndInvalidate();
         resumeCapture();
       }
     } else if (id !== null && event.id === id) {
