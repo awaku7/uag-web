@@ -154,6 +154,28 @@ test('reasoning-only completion stops an active acknowledgement before microphon
   speaker.destroy();
 });
 
+test('an old final speech completion cannot resume the microphone during the next turn', async () => {
+  const { createAvatarRelay } = await import('../src/lib/avatar.js');
+  let completePrevious;
+  const previousPlayback = new Promise((resolve) => { completePrevious = resolve; });
+  let resumeCount = 0;
+  let pauses = 0;
+  const relay = createAvatarRelay(() => previousPlayback, () => {},
+    () => {}, () => { pauses++; }, () => { resumeCount++; });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  relay({ type: 'message', message: { role: 'assistant', content: '前回の回答です。' } });
+  relay({ type: 'assistant_turn_complete' });
+  relay({ type: 'avatar_stop', reason: 'new_input' });
+  assert.equal(pauses, 2);
+  completePrevious();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(resumeCount, 0, 'stale final must not resume capture over new acknowledgement');
+  relay({ type: 'message', message: { role: 'assistant', content: '新しい回答です。' } });
+  relay({ type: 'assistant_turn_complete' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(resumeCount, 1, 'current turn still resumes after its own final');
+});
+
 test('preparation failures and oversized cache never block a normal answer', async () => {
   const runtime = makeRuntime();
   runtime.tts.speakStream = async function* (text) {
