@@ -118,11 +118,13 @@ export function installAvatarAudioActivation(target, getAvatar, onError = () => 
   const onKeyDown = (event) => {
     if (event.key === 'Enter' || event.key === ' ') resume();
   };
-  target.addEventListener('pointerdown', resume, true);
-  target.addEventListener('keydown', onKeyDown, true);
+  // Use an options object for consistent removal across browsers and Node EventTarget.
+  const captureOptions = { capture: true };
+  target.addEventListener('pointerdown', resume, captureOptions);
+  target.addEventListener('keydown', onKeyDown, captureOptions);
   return () => {
-    target.removeEventListener('pointerdown', resume, true);
-    target.removeEventListener('keydown', onKeyDown, true);
+    target.removeEventListener('pointerdown', resume, captureOptions);
+    target.removeEventListener('keydown', onKeyDown, captureOptions);
   };
 }
 
