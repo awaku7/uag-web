@@ -1025,8 +1025,12 @@ def run_agent_worker(
         try:
             _run_web_turn(_finish_stream_in_turn_context)
         except Exception:
-            # Never approve an answer when context binding/checking fails.
-            _web_stream_send({"type": "assistant_turn_cancelled"})
+            # Setup may have failed before the sender was defined. Do not
+            # strand worker locks while attempting a best-effort cancellation.
+            try:
+                _web_stream_send({"type": "assistant_turn_cancelled"})
+            except Exception:
+                pass
 
         try:
             with web_manager.active_room_lock:
