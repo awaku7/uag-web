@@ -141,7 +141,7 @@ function appendConnectionError(message) {
 function openRoomSocket(roomId) {
   stopAvatar('reset');
   _state.roomId = roomId;
-  history.replaceState(null, '', `/room/${encodeURIComponent(roomId)}`);
+  history.replaceState(null, '', `/room/${encodeURIComponent(roomId)}${latencyDiagnosticsEnabled ? '?uag_latency=1' : ''}`);
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const lang = document.documentElement.lang || 'en';
   const qs = `?room=${encodeURIComponent(roomId)}&lang=${encodeURIComponent(lang)}`;
