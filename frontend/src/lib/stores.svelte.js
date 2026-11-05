@@ -76,6 +76,50 @@ export function clearAttachments() { _state.pendingAttachments = []; }
 let reconnectTimer = null;
 let messageHandlers = {};
 
+// Opt-in browser-side turn timing. Never log prompts, attachments, or IDs.
+const latencyDiagnosticsEnabled = (() => {
+  try {
+    return new URL(window.location.href).searchParams.get('uag_latency') === '1';
+  } catch (_) { return false; }
+})();
+let latencyStartedAt = null;
+let latencyFirstQueued = false;
+let latencyFirstBusy = false;
+let latencyFirstTool = false;
+let latencyFirstWorkTool = false;
+let latencyFirstResponse = false;
+const discoveryToolNames = new Set(['tool_catalog', 'tool_load', 'unload_tool', 'human_ask']);
+
+function latencyNow() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function logTurnLatency(stage, toolName = '') {
+  if (!latencyDiagnosticsEnabled || latencyStartedAt === null) return;
+  const elapsed = Math.max(0, Math.round(latencyNow() - latencyStartedAt));
+  console.info(`[uag-latency] ${stage}=${elapsed}ms${toolName ? ` (${toolName})` : ''}`);
+}
+
+function recordFirstResponse() {
+  if (latencyFirstResponse) return;
+  latencyFirstResponse = true;
+  logTurnLatency('first_response');
+}
+
+function recordToolActivity(name) {
+  if (!latencyDiagnosticsEnabled || latencyStartedAt === null || !name) return;
+  if (!latencyFirstTool) {
+    latencyFirstTool = true;
+    logTurnLatency('first_tool', name);
+  }
+  if (!latencyFirstWorkTool && !discoveryToolNames.has(name)) {
+    latencyFirstWorkTool = true;
+    logTurnLatency('first_work_tool', name);
+  }
+}
+
 export function getRoomIdFromUrl() {
   try {
     const url = new URL(window.location.href);
@@ -124,6 +168,7 @@ function openRoomSocket(roomId) {
     // A replaced socket cannot disconnect the active room or schedule a retry.
     if (_state.ws !== newWs) return;
     stopAvatar('reset');
+    latencyStartedAt = null;
     _state.connected = false;
     _state.ws = null;
     if (event.code === 1008) {
@@ -232,6 +277,7 @@ function handleWsMessage(data) {
     case 'message':
       {
         const message = data.message;
+        if (message?.role === 'assistant' && latencyDiagnosticsEnabled && latencyStartedAt !== null) recordFirstResponse();
         const clientMessageId = message?.client_message_id;
         const existingIndex = clientMessageId
           ? _state.messages.findIndex((item) => item?.client_message_id === clientMessageId)
@@ -248,10 +294,21 @@ function handleWsMessage(data) {
       _state.currentToolHtml = '';
       break;
     case 'status':
+      if (latencyDiagnosticsEnabled && latencyStartedAt !== null) {
+        if (data.status.label === 'QUEUED' && !latencyFirstQueued) {
+          latencyFirstQueued = true;
+          logTurnLatency('queued');
+        }
+        if (data.status.busy && data.status.label === 'BUSY' && !latencyFirstBusy) {
+          latencyFirstBusy = true;
+          logTurnLatency('busy');
+        }
+      }
       _state.status = { busy: data.status.busy, label: data.status.label || (data.status.busy ? 'BUSY' : 'IDLE'), workdir: data.status.workdir || '' };
       if (!data.status.busy) _state.currentTool = '';
       break;
     case 'tool_activity':
+      recordToolActivity(data.name);
       _state.currentTool = data.name || '';
       break;
     case 'modes':
@@ -276,9 +333,11 @@ function handleWsMessage(data) {
       }
       break;
     case 'reasoning':
+      if (latencyDiagnosticsEnabled && latencyStartedAt !== null) recordFirstResponse();
       if (messageHandlers.reasoning) messageHandlers.reasoning(data.content || '');
       break;
     case 'assistant_stream_start':
+      if (latencyDiagnosticsEnabled && latencyStartedAt !== null) recordFirstResponse();
       _state.currentToolHtml = '';
       if (messageHandlers.streamStart) messageHandlers.streamStart(data.id);
       break;
@@ -319,6 +378,14 @@ export function sendUserInput(text, attachments) {
     }));
   } catch (_) {
     return false;
+  }
+  if (latencyDiagnosticsEnabled) {
+    latencyStartedAt = latencyNow();
+    latencyFirstQueued = false;
+    latencyFirstBusy = false;
+    latencyFirstTool = false;
+    latencyFirstWorkTool = false;
+    latencyFirstResponse = false;
   }
   // Only the tab that originated this request knows its correlation ID.
   // Mark it before the server echo can arrive and re-arm stopped speech.
