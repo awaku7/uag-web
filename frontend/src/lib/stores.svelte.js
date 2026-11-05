@@ -308,8 +308,8 @@ function handleWsMessage(data) {
       if (!data.status.busy) _state.currentTool = '';
       break;
     case 'tool_activity':
-      recordToolActivity(data.name);
       _state.currentTool = data.name || '';
+      recordToolActivity(data.name);
       break;
     case 'modes':
       if (data.modes) _state.modes = {
