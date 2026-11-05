@@ -12,6 +12,7 @@ const source = readFileSync(new URL('../src/lib/stores.svelte.js', import.meta.u
 function makeHarness(debug = true) {
   const logs = [];
   const sockets = [];
+  const navigations = [];
   let elapsed = 0;
   class FakeSocket {
     static CONNECTING = 0;
@@ -29,7 +30,7 @@ function makeHarness(debug = true) {
     URL,
     WebSocket: FakeSocket,
     document: { documentElement: { lang: 'en' } },
-    history: { replaceState() {} },
+    history: { replaceState(_state, _title, url) { navigations.push(url); } },
     performance: { now: () => elapsed },
     console: { info: (message) => logs.push(message), warn() {} },
     window: {
@@ -48,6 +49,7 @@ function makeHarness(debug = true) {
   return {
     logs,
     socket,
+    navigations,
     setElapsed(value) { elapsed = value; },
     send(text = 'test prompt') { return runInContext(`sendUserInput(${JSON.stringify(text)}, [])`, context); },
     event(value) { socket.onmessage({ data: JSON.stringify(value) }); },
@@ -102,4 +104,12 @@ test('new user input restarts timing and ignores empty tool activity', () => {
     '[uag-latency] first_tool=60ms (cmd_exec)',
     '[uag-latency] first_work_tool=60ms (cmd_exec)',
   ]);
+});
+
+
+test('latency URL flag survives room navigation and refresh', () => {
+  const enabled = makeHarness(true);
+  assert.deepEqual(enabled.navigations, ['/room/alpha?uag_latency=1']);
+  const disabled = makeHarness(false);
+  assert.deepEqual(disabled.navigations, ['/room/alpha']);
 });
