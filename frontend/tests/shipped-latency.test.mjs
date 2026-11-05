@@ -16,3 +16,16 @@ test('committed browser bundle contains the opt-in latency probe', () => {
 test('committed browser bundle preserves the opt-in parameter on room navigation', () => {
   assert.match(bundle, /replaceState\([^;]+uag_latency=1/);
 });
+
+test('committed browser tracker discards an interrupted socket measurement', () => {
+  if (bundle.includes('__uagLatencyTracker')) {
+    assert.match(bundle, /\.onclose=[^;]{0,300}__uagLatencyTracker\.reset\(\)/);
+  } else {
+    // npm run build regenerates the bundle from the source implementation.
+    const source = readFileSync(
+      new URL('../src/lib/stores.svelte.js', import.meta.url),
+      'utf8',
+    );
+    assert.match(source, /newWs\.onclose[\s\S]*?latencyStartedAt = null;/);
+  }
+});
