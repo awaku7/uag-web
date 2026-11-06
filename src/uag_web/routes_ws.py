@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from functools import partial
 import json
 import threading
 
@@ -84,7 +85,7 @@ _MAX_PENDING_INPUT_WORKERS = 64
 _input_worker_slots = threading.BoundedSemaphore(_MAX_PENDING_INPUT_WORKERS)
 
 
-def _run_admitted_input(target, args, kwargs):
+def _run_admitted_input(target, *args, **kwargs):
     try:
         target(*args, **kwargs)
     finally:
@@ -96,8 +97,9 @@ def _start_input_worker(target, args, kwargs) -> bool:
         return False
     try:
         threading.Thread(
-            target=_run_admitted_input,
-            args=(target, args, kwargs),
+            target=partial(_run_admitted_input, target),
+            args=args,
+            kwargs=kwargs,
             daemon=True,
         ).start()
     except BaseException:
