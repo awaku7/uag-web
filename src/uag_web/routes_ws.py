@@ -78,6 +78,34 @@ def _human_ask_response_is_authorized(room, principal_id: str) -> bool:
     return bool(expected and expected == str(principal_id or ""))
 
 
+# Bound short-lived admission threads, including requests waiting for a room worker.
+# The process worker pool separately limits concurrent LLM/tool execution.
+_MAX_PENDING_INPUT_WORKERS = 64
+_input_worker_slots = threading.BoundedSemaphore(_MAX_PENDING_INPUT_WORKERS)
+
+
+def _run_admitted_input(target, args, kwargs):
+    try:
+        target(*args, **kwargs)
+    finally:
+        _input_worker_slots.release()
+
+
+def _start_input_worker(target, args, kwargs) -> bool:
+    if not _input_worker_slots.acquire(blocking=False):
+        return False
+    try:
+        threading.Thread(
+            target=_run_admitted_input,
+            args=(target, args, kwargs),
+            daemon=True,
+        ).start()
+    except BaseException:
+        _input_worker_slots.release()
+        raise
+    return True
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     try:
@@ -176,16 +204,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     or len(client_message_id) > 64
                 ):
                     client_message_id = ""
-                threading.Thread(
-                    target=call_with_trusted_ingress,
-                    args=(
+                accepted = _start_input_worker(
+                    call_with_trusted_ingress,
+                    (
                         trusted_trace_carrier,
                         run_agent_worker,
                         room,
                         user_text,
                         payload.get("attachments"),
                     ),
-                    kwargs={
+                    {
                         "project_path": worker_dir,
                         "turn_context": connection.make_turn(
                             project_path=worker_dir,
@@ -198,8 +226,16 @@ async def websocket_endpoint(websocket: WebSocket):
                         "identity_context": connection.identity,
                         "client_message_id": client_message_id,
                     },
-                    daemon=True,
-                ).start()
+                )
+                if not accepted:
+                    room.add_message(
+                        {
+                            "role": "assistant",
+                            "content": _(
+                                "[WARN] Too many pending Web requests. Please retry shortly."
+                            ),
+                        }
+                    )
 
             elif payload.get("type") == "command":
                 cmd_text = str(payload.get("text") or "").strip()
