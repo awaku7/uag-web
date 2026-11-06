@@ -273,6 +273,7 @@ function handleWsMessage(data) {
         verbosity: data.modes.verbosity || 'off',
         displayReasoning: data.modes.display_reasoning !== undefined ? !!data.modes.display_reasoning : true,
       };
+      if (messageHandlers.init) messageHandlers.init();
       break;
     case 'message':
       {
