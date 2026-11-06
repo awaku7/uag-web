@@ -10,16 +10,67 @@ import tempfile
 from urllib.request import Request, urlopen
 
 SOURCES = {
-    "sdk": ("zen-lipsync", "ebecdf09261ac137487d9b08d42e8aaeddb2ae98"),
-    "tts": ("zen-tts", "eda96c40f7d811406e1ff908120fa19b787dc53d"),
-    "avatars": ("zen-lipsync-avatars", "577fb04aba6e3bf006b39670cf4fd6884ae62266"),
+    "sdk": ("zen-lipsync", "v1.1.0", "ebecdf09261ac137487d9b08d42e8aaeddb2ae98"),
+    "tts": ("zen-tts", "v1.2.0", "34fc2288e682bc87a6fccaf8d158c5c0647adccc"),
+    "avatars": (
+        "zen-lipsync-avatars",
+        "v1.1.0",
+        "577fb04aba6e3bf006b39670cf4fd6884ae62266",
+    ),
 }
+PREVIOUS_TTS_COMMIT = "eda96c40f7d811406e1ff908120fa19b787dc53d"
 MODELS = {
-    "marine": "3fce81efbbb598b546429c6e53955a6d18fdbc9bca72afd029baf2eac06678a0",
-    "hashiro": "ad6557b1d5e427c3466203a6b450530b70480b4a825129c734322de39d269230",
-    "kai": "653d1c14b6eff80a0d28e483422a43ad82c3b78f8ead61cb7aa1984062883e33",
-    "kikka": "1875058d12bf15815638542e8b1178af56f63ca29120b5c7f5b97d38e4cc5c17",
+    "marine": "c5f5ff04d43c3a742790856f4639f6d801e5c9a951a4f11ae800775fa0ed11d5",
+    "hashiro": "6b85821342690767c0156a3f2c390f05589ae91291c24cca545880f8d2c5b348",
+    "kai": "c6f741f7269736de3abb063215f1f9a032aa5fc06a4e576f38accb407b04fdc4",
+    "kikka": "277cbd80a4fbff93988ff3b382fc29c8de98749a2c1cb1a8d6e0cc9e2fc869c8",
 }
+
+
+def ensure_source(name, repo, tag, expected_commit, target):
+    """Use an exact upstream commit; upgrade only an unchanged ZEN-TTS 1.1.0."""
+    if not target.exists():
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                tag,
+                f"https://github.com/zenryokukikai/{repo}.git",
+                str(target),
+            ],
+            check=True,
+        )
+    actual = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=target, text=True
+    ).strip()
+    dirty = subprocess.check_output(
+        ["git", "diff", "HEAD", "--"], cwd=target, text=True
+    )
+    if dirty:
+        raise RuntimeError(
+            f"Modified upstream resources in {target}; use a fresh directory."
+        )
+    if name == "tts" and actual == PREVIOUS_TTS_COMMIT:
+        subprocess.run(
+            ["git", "fetch", "--depth", "1", "origin", f"refs/tags/{tag}"],
+            cwd=target,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "checkout", "--detach", expected_commit],
+            cwd=target,
+            check=True,
+        )
+        actual = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=target, text=True
+        ).strip()
+    if actual != expected_commit:
+        raise RuntimeError(
+            f"Unexpected revision in {target}; use a fresh directory."
+        )
 
 
 def main():
@@ -42,7 +93,8 @@ def main():
             "Git and Node.js/npm are required (upstream recommends Node 26.12.1+)."
         )
     print(
-        "Installing ZEN-LipSync / ZEN-TTS 1.1.0 for local use only; no redistribution or modification.",
+        "Installing ZEN-LipSync 1.1.0 / ZEN-TTS 1.2.0 for local use only; "
+        "no redistribution or modification.",
         flush=True,
     )
     print(
@@ -50,40 +102,13 @@ def main():
         flush=True,
     )
     print(
-        "Terms: https://github.com/zenryokukikai/zen-tts/blob/v1.1.0/LICENSE.md",
+        "Terms: https://github.com/zenryokukikai/zen-tts/blob/v1.2.0/LICENSE.md",
         flush=True,
     )
     root.mkdir(parents=True, exist_ok=True)
-    for name, (repo, commit) in SOURCES.items():
+    for name, (repo, tag, commit) in SOURCES.items():
         target = root / name
-        if not target.exists():
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--depth",
-                    "1",
-                    "--branch",
-                    "v1.1.0",
-                    f"https://github.com/zenryokukikai/{repo}.git",
-                    str(target),
-                ],
-                check=True,
-            )
-        actual = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=target, text=True
-        ).strip()
-        if actual != commit:
-            raise RuntimeError(
-                f"Unexpected revision in {target}; use a fresh directory."
-            )
-        dirty = subprocess.check_output(
-            ["git", "diff", "HEAD", "--"], cwd=target, text=True
-        )
-        if dirty:
-            raise RuntimeError(
-                f"Modified upstream resources in {target}; use a fresh directory."
-            )
+        ensure_source(name, repo, tag, commit, target)
         if name != "avatars":
             subprocess.run(
                 [
@@ -112,7 +137,7 @@ def main():
             try:
                 with urlopen(
                     Request(
-                        f"https://tts-models.zenryoku.work/v1.1.0/{voice}.ztm",
+                        f"https://tts-models.zenryoku.work/v1.2.0/{voice}.ztm",
                         headers={"User-Agent": "uagav/0.1"},
                     ),
                     timeout=60,
