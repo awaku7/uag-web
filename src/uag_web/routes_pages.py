@@ -135,7 +135,8 @@ async def get_local_file(request: Request, path: str, room_id: str = ""):
         if not raw:
             raise ValueError(_("missing path"))
         requested = Path(raw)
-        full = (requested if requested.is_absolute() else base_dir / requested).resolve()
+        full = requested if requested.is_absolute() else base_dir / requested
+        full = full.resolve()
         # Resolve symlinks before checking the workdir boundary.
         if not full.is_relative_to(base_dir):
             raise HTTPException(status_code=403, detail=_("path outside workdir"))
