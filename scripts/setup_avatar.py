@@ -66,9 +66,7 @@ def ensure_source(name, repo, tag, expected_commit, target):
             ["git", "rev-parse", "HEAD"], cwd=target, text=True
         ).strip()
     if actual != expected_commit:
-        raise RuntimeError(
-            f"Unexpected revision in {target}; use a fresh directory."
-        )
+        raise RuntimeError(f"Unexpected revision in {target}; use a fresh directory.")
 
 
 def main():
