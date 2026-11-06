@@ -11,6 +11,9 @@
   let chatBox = $state(null);
   let streamState = $state({ id: null, active: false, done: false, text: '', reasoning: '' });
   let imageStreamState = $state({ src: '', mime: '', partial: false, visible: false });
+  function clearImagePreview() {
+    imageStreamState = { src: '', mime: '', partial: false, visible: false };
+  }
   let lastMessageCount = 0;
 
   // Follow new content only while the reader is near the bottom.
@@ -57,6 +60,7 @@
     const newUserMessage = newMessage && last?.role === 'user';
     const newAssistantMessage = newMessage && last?.role === 'assistant';
     lastMessageCount = count;
+    if (newUserMessage) clearImagePreview();
     if ((newUserMessage && (streamState.active || streamState.done))
       || (newAssistantMessage && (streamState.active || streamState.done))
       || (streamState.done && last?.role === 'assistant')) {
@@ -70,6 +74,10 @@
   });
 
   $effect(() => {
+    const unsubInit = onMessage('init', () => {
+      streamState = { id: null, active: false, done: false, text: '', reasoning: '' };
+      clearImagePreview();
+    });
     const unsubStart = onMessage('streamStart', (id) => { streamState = { id, active: true, done: false, text: '', reasoning: '' }; });
     const unsubDelta = onMessage('streamDelta', (id, delta) => {
       if (streamState.active && streamState.id === id) {
@@ -112,7 +120,7 @@
         streamState = { ...streamState, active: false, done: true };
       }
     });
-    return () => { unsubStart(); unsubDelta(); unsubReplace(); unsubReasoning(); unsubImage(); unsubEnd(); };
+    return () => { unsubInit(); unsubStart(); unsubDelta(); unsubReplace(); unsubReasoning(); unsubImage(); unsubEnd(); };
   });
 </script>
 
