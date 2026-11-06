@@ -289,6 +289,7 @@ def run_agent_worker(
     project_path: str | None = None,
     sandbox_scope_override: Any | None = None,
     client_message_id: str = "",
+    request_lang: str | None = None,
 ):
     """Run one user turn for a room.
 
@@ -328,6 +329,7 @@ def run_agent_worker(
             identity_context=identity_context,
             project_path=project_path,
             client_message_id=client_message_id,
+            request_lang=request_lang,
         )
 
     def _run_web_turn(fn, *args, **kwargs):
@@ -360,11 +362,12 @@ def run_agent_worker(
     # Ensure logs/status go to this room (thread-local). Parallel tool workers
     # inherit room via tools.run_tool wrapper (see init_web).
     _thread_ctx.room = room
-    set_thread_lang(getattr(room, "lang", "en"))
+    turn_lang = request_lang or getattr(room, "lang", "en")
+    set_thread_lang(turn_lang)
     log_event(
         "web.room.task.started",
         room_id=getattr(room, "room_id", ""),
-        locale=getattr(room, "lang", "en"),
+        locale=turn_lang,
     )
 
     # Serialize per-room runs to avoid history/tool collisions
@@ -385,7 +388,7 @@ def run_agent_worker(
         return
 
     room_context_token = set_context_web_room(room)
-    locale_context_token = set_contextvar_locale(getattr(room, "lang", "en"))
+    locale_context_token = set_contextvar_locale(turn_lang)
 
     acquired_global = False
     _orig_cwd = None
