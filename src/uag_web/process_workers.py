@@ -97,14 +97,6 @@ def room_state(room) -> dict[str, Any]:
     }
 
 
-def room_turn_state(room, lang: str | None = None) -> dict[str, Any]:
-    """Snapshot the locale of the submitting client without mutating the Room."""
-    state = room_state(room)
-    if lang:
-        state["lang"] = lang
-    return state
-
-
 def room_worker_count(cli_value: int | None = None) -> int:
     from uagent.env_utils import env_get
 
@@ -349,6 +341,7 @@ def _child_turn(connection, payload) -> None:
                 project_path=payload["project_path"],
                 sandbox_scope_override=sandbox_scope,
                 client_message_id=payload.get("client_message_id", ""),
+                request_lang=payload.get("request_lang"),
             )
         if room.private_session or not room.session_id:
             for name in (
@@ -608,7 +601,8 @@ class RoomWorkerPool:
                 parent_tools = []
                 tool_names = []
             payload = {
-                "room": room_turn_state(room, kwargs.get("request_lang")),
+                "room": room_state(room),
+                "request_lang": kwargs.get("request_lang"),
                 "decision_provider": get_decision_settings().provider,
                 "display_reasoning": get_display_reasoning(),
                 "input": user_input,
