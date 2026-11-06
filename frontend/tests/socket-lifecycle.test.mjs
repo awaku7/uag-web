@@ -106,6 +106,23 @@ test('shipped Web bundle applies the same socket ownership guards', () => {
   assert.match(bundle, /\.onclose=\w+=>\{if\([\w$]+\.ws===\w+\)\{/);
 });
 
+test('WebSocket init notifies subscribers to discard transient chat previews', () => {
+  const { sockets, run } = makeSocketHarness();
+  run('globalThis.initNotifications = 0; onMessage("init", () => { globalThis.initNotifications++; });');
+  run('connect()');
+  sockets[0].onmessage({
+    data: JSON.stringify({ type: 'init', messages: [] }),
+  });
+  assert.equal(run('globalThis.initNotifications'), 1);
+
+  const chat = readFileSync(
+    new URL('../src/lib/components/Chat.svelte', import.meta.url), 'utf8',
+  );
+  assert.match(chat, /onMessage\('init', \(\) => \{/);
+  assert.match(chat, /if \(newUserMessage\) clearImagePreview\(\)/);
+  assert.match(chat, /clearImagePreview\(\);/);
+});
+
 test('commands retain failure status while the connection is unavailable', () => {
   const { sockets, run } = makeSocketHarness();
   assert.equal(run("sendCommand(':tools')"), false);

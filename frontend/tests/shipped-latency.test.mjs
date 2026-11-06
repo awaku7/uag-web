@@ -29,3 +29,12 @@ test('committed browser tracker discards an interrupted socket measurement', () 
     assert.match(source, /newWs\.onclose[\s\S]*?latencyStartedAt = null;/);
   }
 });
+
+test('committed browser bundle clears image previews on reconnect and new turns', () => {
+  assert.match(bundle, /\.init&&[\w$]+\.init\(\)/);
+  assert.match(bundle, /"init",\(\)=>\{/);
+  assert.ok(
+    (bundle.match(/\{src:"",mime:"",partial:!1,visible:!1\}/g) || []).length >= 2,
+    'the shipped bundle must both initialize and clear image preview state',
+  );
+});
