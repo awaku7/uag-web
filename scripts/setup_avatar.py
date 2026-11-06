@@ -60,9 +60,7 @@ def ensure_source(name, repo, tag, expected_commit, target):
             check=True,
         )
         subprocess.run(
-            ["git", "checkout", "--detach", expected_commit],
-            cwd=target,
-            check=True,
+            ["git", "checkout", "--detach", expected_commit], cwd=target, check=True
         )
         actual = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=target, text=True
