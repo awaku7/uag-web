@@ -12,10 +12,11 @@ def test_input_worker_admission_is_bounded_and_released(monkeypatch):
     calls = []
 
     class DeferredThread:
-        def __init__(self, *, target, args, daemon):
+        def __init__(self, *, target, args, kwargs, daemon):
             assert daemon
             self.target = target
             self.args = args
+            self.kwargs = kwargs
 
         def start(self):
             workers.append(self)
@@ -28,11 +29,11 @@ def test_input_worker_admission_is_bounded_and_released(monkeypatch):
     assert len(workers) == 1
 
     first = workers.pop()
-    first.target(*first.args)
+    first.target(*first.args, **first.kwargs)
     assert routes_ws._start_input_worker(calls.append, ("second",), {})
 
     second = workers.pop()
-    second.target(*second.args)
+    second.target(*second.args, **second.kwargs)
     assert calls == ["first", "second"]
 
 
@@ -41,7 +42,7 @@ def test_input_worker_slots_release_after_start_failure(monkeypatch):
     monkeypatch.setattr(routes_ws, "_input_worker_slots", slots)
 
     class BrokenThread:
-        def __init__(self, *, target, args, daemon):
+        def __init__(self, *, target, args, kwargs, daemon):
             pass
 
         def start(self):
