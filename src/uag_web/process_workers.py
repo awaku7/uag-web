@@ -97,6 +97,14 @@ def room_state(room) -> dict[str, Any]:
     }
 
 
+def room_turn_state(room, lang: str | None = None) -> dict[str, Any]:
+    """Snapshot the locale of the submitting client without mutating the Room."""
+    state = room_state(room)
+    if lang:
+        state["lang"] = lang
+    return state
+
+
 def room_worker_count(cli_value: int | None = None) -> int:
     from uagent.env_utils import env_get
 
@@ -600,7 +608,7 @@ class RoomWorkerPool:
                 parent_tools = []
                 tool_names = []
             payload = {
-                "room": room_state(room),
+                "room": room_turn_state(room, kwargs.get("request_lang")),
                 "decision_provider": get_decision_settings().provider,
                 "display_reasoning": get_display_reasoning(),
                 "input": user_input,
