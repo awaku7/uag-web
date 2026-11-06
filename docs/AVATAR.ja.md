@@ -34,8 +34,8 @@ SDK・モデル・素材は独自ライセンスで、アプリ内利用は許�
 運用や、配布物への同梱を行う場合は事前に権利者への確認が必要です。
 
 - [ZEN-LipSyncライセンス1.0](https://github.com/zenryokukikai/zen-lipsync/blob/v1.1.0/LICENSE.md): 3章のクレジット・改変/再配布禁止と4章の標準アバター利用条件。
-- [ZEN-TTSライセンス1.0](https://github.com/zenryokukikai/zen-tts/blob/v1.1.0/LICENSE.md): 3章のクレジット・改変/再配布禁止。
-- [SDKの第三者ライセンス](https://github.com/zenryokukikai/zen-lipsync/blob/v1.1.0/THIRD_PARTY_NOTICES.md)と[TTSの第三者ライセンス](https://github.com/zenryokukikai/zen-tts/blob/v1.1.0/THIRD_PARTY_NOTICES.md)も公式取得物に保持します。
+- [ZEN-TTSライセンス1.0](https://github.com/zenryokukikai/zen-tts/blob/v1.2.0/LICENSE.md): 3章のクレジット・改変/再配布禁止。
+- [SDKの第三者ライセンス](https://github.com/zenryokukikai/zen-lipsync/blob/v1.1.0/THIRD_PARTY_NOTICES.md)と[TTSの第三者ライセンス](https://github.com/zenryokukikai/zen-tts/blob/v1.2.0/THIRD_PARTY_NOTICES.md)も公式取得物に保持します。
 
 GitとNode.js/npmを用意します。公式SDKの推奨はNode.js 26.12.1以上です。
 `uag-web`のチェックアウト先で実行します（Windows / Linux / macOS共通）。
@@ -45,9 +45,15 @@ python scripts/setup_avatar.py
 uagav
 ```
 
-既定の取得先はホームディレクトリの`.uagav/zen`です。公式1.1.0のコミットを固定し、
-ソースを改変せずビルドします。4種類の音声モデル（カイを含む）は公式CDNから取得し、公開SHA-256を
-照合してから配置します。約230MB以上の素材に加え、ビルド用のディスク容量が必要です。
+既定の取得先はホームディレクトリの`.uagav/zen`です。ZEN-LipSyncとアバター素材は
+公式v1.1.0、ZEN-TTSは**公式v1.2.0**のコミットに固定し、ソースを改変せずビルドします。
+4種類の音声モデル（カイを含む）はv1.2.0の公式CDNから取得し、公開SHA-256を
+照合してから配置します。アバター素材と音声モデルに加え、ビルド用のディスク容量が必要です。
+
+既存のZEN-TTS v1.1.0の公式チェックアウトは、追跡ファイルに変更がなければ
+上記のセットアップコマンドでv1.2.0へ更新できます。変更済み、または未知のリビジョンは
+自動で上書きせずエラーにします。v1.1.0の音声モデルは、ハッシュ検証済みの
+v1.2.0モデルに差し替えられます。ZEN-LipSyncとアバター素材のバージョンは変更しません。
 初回取得とSDKビルドにはネット接続が必要ですが、配置後のSDK・TTS・アバター処理は
 同一オリジンから読み込み、ブラウザ内で実行します。LLM認証情報はサーバー側のままです。
 
