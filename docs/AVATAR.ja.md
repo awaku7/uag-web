@@ -34,8 +34,8 @@ SDK・モデル・素材は独自ライセンスで、アプリ内利用は許�
 運用や、配布物への同梱を行う場合は事前に権利者への確認が必要です。
 
 - [ZEN-LipSyncライセンス1.0](https://github.com/zenryokukikai/zen-lipsync/blob/v1.1.0/LICENSE.md): 3章のクレジット・改変/再配布禁止と4章の標準アバター利用条件。
-- [ZEN-TTSライセンス1.0](https://github.com/zenryokukikai/zen-tts/blob/v1.1.0/LICENSE.md): 3章のクレジット・改変/再配布禁止。
-- [SDKの第三者ライセンス](https://github.com/zenryokukikai/zen-lipsync/blob/v1.1.0/THIRD_PARTY_NOTICES.md)と[TTSの第三者ライセンス](https://github.com/zenryokukikai/zen-tts/blob/v1.1.0/THIRD_PARTY_NOTICES.md)も公式取得物に保持します。
+- [ZEN-TTSライセンス1.0](https://github.com/zenryokukikai/zen-tts/blob/v1.2.0/LICENSE.md): 3章のクレジット・改変/再配布禁止。
+- [SDKの第三者ライセンス](https://github.com/zenryokukikai/zen-lipsync/blob/v1.1.0/THIRD_PARTY_NOTICES.md)と[TTSの第三者ライセンス](https://github.com/zenryokukikai/zen-tts/blob/v1.2.0/THIRD_PARTY_NOTICES.md)も公式取得物に保持します。
 
 GitとNode.js/npmを用意します。公式SDKの推奨はNode.js 26.12.1以上です。
 `uag-web`のチェックアウト先で実行します（Windows / Linux / macOS共通）。
@@ -45,9 +45,19 @@ python scripts/setup_avatar.py
 uagav
 ```
 
-既定の取得先はホームディレクトリの`.uagav/zen`です。公式1.1.0のコミットを固定し、
-ソースを改変せずビルドします。4種類の音声モデル（カイを含む）は公式CDNから取得し、公開SHA-256を
-照合してから配置します。約230MB以上の素材に加え、ビルド用のディスク容量が必要です。
+既定の取得先はホームディレクトリの`.uagav/zen`です。
+ZEN-TTS **v1.2.0**、ZEN-LipSyncとアバター素材 **v1.1.0** の公式コミットを
+固定し、ソースを改変せずビルドします。4種類の音声モデル（カイを含む）は
+ZEN-TTS v1.2.0の公式CDNから取得し、公開SHA-256を照合してから配置します。
+約230MB以上の素材に加え、ビルド用のディスク容量が必要です。
+
+すでにv1.1.0のZEN-TTSをこのディレクトリに配置している場合も、
+`python scripts/setup_avatar.py` を再実行してください。
+未改変で公式v1.1.0のコミットにあるZEN-TTSだけをv1.2.0に更新し、
+4種類の新しい音声モデルを検証・差し替えます。
+ZEN-LipSyncとアバター素材は現在の最新版v1.1.0のままです。
+改変済みや未知のコミットのチェックアウトは上書きせず、エラーで停止します。
+更新はアバター機能を停止した状態で行い、完了後に`uagav`を再起動してください。
 初回取得とSDKビルドにはネット接続が必要ですが、配置後のSDK・TTS・アバター処理は
 同一オリジンから読み込み、ブラウザ内で実行します。LLM認証情報はサーバー側のままです。
 
@@ -62,6 +72,9 @@ uagav
   WebGPUが必要です。非対応環境でも既存のテキストチャットは利用できます。
 - 返答の確定後、文ごとに音声を合成して口パク付きで読み上げます。コードブロックと画像URLは
   読み上げません。LLMのトークン到着中に読み上げる機能はまだありません。
+- ZEN-TTS v1.2.0は合成APIに話速（0.5〜1.5倍）やピッチ（-6〜+12半音）、
+  辞書等の機能を追加していますが、uag-webの画面からはまだ設定できません。
+  現行の既定値のまま音声合成します。
 - 「ZEN-TTS」のトグルスイッチで**CPU（既定）／WebGPU**を選択できます。切替は音声合成だけに適用され、
   リップシンクはどちらでもWebGPUを使います。アバター使用中に切り替えるとSDK・音声モデルを再初期化し、
   進行中の読み上げと連続聞き取りを停止します。必要なら「連続聞き取り開始」を押し直してください。
