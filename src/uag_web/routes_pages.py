@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import os
+from pathlib import Path
 import re
 import shutil
 from typing import Any
@@ -127,21 +128,20 @@ async def get_local_file(request: Request, path: str, room_id: str = ""):
         _authorize_room_request(request, raw_room_id)
         if raw_room_id:
             room_obj = web_manager.get_room(raw_room_id)
-            base_dir = os.path.abspath(room_obj.base_dir)
+            base_dir = Path(room_obj.base_dir).resolve()
         else:
-            base_dir = os.path.abspath(os.getcwd())
+            base_dir = Path.cwd().resolve()
         raw = str(path or "").strip()
         if not raw:
             raise ValueError(_("missing path"))
-        full = os.path.abspath(raw)
-        if not os.path.isabs(raw):
-            full = os.path.abspath(os.path.join(base_dir, raw))
-        full_norm = os.path.normpath(full)
-        base_norm = os.path.normpath(base_dir)
-        if not (full_norm == base_norm or full_norm.startswith(base_norm + os.sep)):
-            raise ValueError(_("path outside workdir"))
-        if not os.path.isfile(full_norm):
-            raise FileNotFoundError(full_norm)
-        return FileResponse(full_norm)
+        requested = Path(raw)
+        full = requested if requested.is_absolute() else base_dir / requested
+        full = full.resolve()
+        # Resolve symlinks before checking the workdir boundary.
+        if not full.is_relative_to(base_dir):
+            raise HTTPException(status_code=403, detail=_("path outside workdir"))
+        if not full.is_file():
+            raise FileNotFoundError(full)
+        return FileResponse(full)
     except Exception:
         raise
