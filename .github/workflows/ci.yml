@@ -31,7 +31,7 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
-      - run: python -m black --check src tests scripts/setup_avatar.py
+      - run: python -m black --check --diff src tests scripts/setup_avatar.py
       - run: python -m ruff check src tests scripts/setup_avatar.py
       - run: python -m pytest -q tests --durations=20
       - run: python -m build
