@@ -9,7 +9,7 @@ import json
 import threading
 
 from fastapi import WebSocket, WebSocketDisconnect
-from uagent.i18n import _
+from uagent.i18n import _, _normalize_lang_tag
 from uagent import core
 from uagent.providers import util_providers as providers
 from uagent.runtime.identity_context import (
@@ -117,9 +117,7 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     room_id = websocket.query_params.get("room")
-    ws_lang = (websocket.query_params.get("lang") or "").lower().strip()
-    if ws_lang not in ("ja", "en", "ar"):
-        ws_lang = "en"
+    ws_lang = _normalize_lang_tag(websocket.query_params.get("lang"))
     if not room_id:
         # require explicit room for safety
         await websocket.close(code=1008)
@@ -227,6 +225,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         ),
                         "identity_context": connection.identity,
                         "client_message_id": client_message_id,
+                        "request_lang": ws_lang,
                     },
                 )
                 if not accepted:

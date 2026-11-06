@@ -341,6 +341,7 @@ def _child_turn(connection, payload) -> None:
                 project_path=payload["project_path"],
                 sandbox_scope_override=sandbox_scope,
                 client_message_id=payload.get("client_message_id", ""),
+                request_lang=payload.get("request_lang"),
             )
         if room.private_session or not room.session_id:
             for name in (
@@ -601,6 +602,7 @@ class RoomWorkerPool:
                 tool_names = []
             payload = {
                 "room": room_state(room),
+                "request_lang": kwargs.get("request_lang"),
                 "decision_provider": get_decision_settings().provider,
                 "display_reasoning": get_display_reasoning(),
                 "input": user_input,
