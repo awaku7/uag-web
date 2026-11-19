@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import sys
@@ -123,8 +124,36 @@ def _current_web_ask_principal(room) -> str:
         return ""
 
 
+@contextlib.contextmanager
+def _real_console_streams():
+    """Use the real console streams while startup talks to the user.
+
+    Importing this package replaces sys.stdout/sys.stderr with the Web
+    UI capture streams (uag_web.io). Their console mirror is off by
+    default and they only forward complete lines, so an interactive
+    prompt — which has no trailing newline — never reaches the console
+    while input() blocks waiting for its answer, and startup errors
+    vanish the same way. Sandbox initialization asks questions and
+    fails fatally, so it must run on the real console.
+    """
+    saved_stdout, saved_stderr = sys.stdout, sys.stderr
+    try:
+        if sys.__stdout__ is not None:
+            sys.stdout = sys.__stdout__
+        if sys.__stderr__ is not None:
+            sys.stderr = sys.__stderr__
+        yield
+    finally:
+        sys.stdout, sys.stderr = saved_stdout, saved_stderr
+
+
 def _initialize_web_sandbox(parser, *, sandbox_mode: str):
     """Initialize MXC before starting Web; no Host fallback is permitted."""
+    with _real_console_streams():
+        return _initialize_web_sandbox_on_console(parser, sandbox_mode=sandbox_mode)
+
+
+def _initialize_web_sandbox_on_console(parser, *, sandbox_mode: str):
     from uagent.i18n import _
     from uagent.runtime.mxc_backend import (
         MxcSessionManager,
@@ -255,7 +284,11 @@ def init_web():
         pass
     initialize_web_job_runtime()
 
-    web_manager.original_set_status = core.set_status
+    # A pooled room worker calls init_web once per turn in the same
+    # process. Recapturing the already-wrapped set_status would leave
+    # web_set_status delegating to itself, so capture only the original.
+    if core.set_status is not web_set_status:
+        web_manager.original_set_status = core.set_status
 
     def _web_image_event(event: dict[str, Any]) -> None:
         room = getattr(_thread_ctx, "room", None)
@@ -498,7 +531,11 @@ def init_web():
                 except Exception:
                     pass
 
-    tools.run_tool = web_run_tool_wrapper
+    # Same idempotency guard as set_status above: wrap run_tool once per
+    # process, not once per init_web call.
+    if not getattr(tools.run_tool, "_uag_web_wrapped", False):
+        web_run_tool_wrapper._uag_web_wrapped = True
+        tools.run_tool = web_run_tool_wrapper
 
 
 def main():
